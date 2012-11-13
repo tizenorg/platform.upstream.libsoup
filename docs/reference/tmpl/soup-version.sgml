@@ -1,0 +1,93 @@
+<!-- ##### SECTION Title ##### -->
+Version Information
+
+<!-- ##### SECTION Short_Description ##### -->
+
+
+<!-- ##### SECTION Long_Description ##### -->
+<para>
+
+</para>
+
+
+<!-- ##### SECTION See_Also ##### -->
+<para>
+
+</para>
+
+
+<!-- ##### SECTION Stability_Level ##### -->
+
+
+<!-- ##### SECTION Image ##### -->
+
+
+<!-- ##### FUNCTION soup_get_major_version ##### -->
+<para>
+
+</para>
+
+@void: 
+@Returns: 
+
+
+<!-- ##### FUNCTION soup_get_minor_version ##### -->
+<para>
+
+</para>
+
+@void: 
+@Returns: 
+
+
+<!-- ##### FUNCTION soup_get_micro_version ##### -->
+<para>
+
+</para>
+
+@void: 
+@Returns: 
+
+
+<!-- ##### FUNCTION soup_check_version ##### -->
+<para>
+
+</para>
+
+@major: 
+@minor: 
+@micro: 
+@Returns: 
+
+
+<!-- ##### MACRO SOUP_MAJOR_VERSION ##### -->
+<para>
+
+</para>
+
+
+
+<!-- ##### MACRO SOUP_MINOR_VERSION ##### -->
+<para>
+
+</para>
+
+
+
+<!-- ##### MACRO SOUP_MICRO_VERSION ##### -->
+<para>
+
+</para>
+
+
+
+<!-- ##### MACRO SOUP_CHECK_VERSION ##### -->
+<para>
+
+</para>
+
+@major: 
+@minor: 
+@micro: 
+
+

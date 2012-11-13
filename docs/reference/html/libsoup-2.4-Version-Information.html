@@ -1,0 +1,254 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>Version Information</title>
+<meta name="generator" content="DocBook XSL Stylesheets V1.77.1">
+<link rel="home" href="index.html" title="libsoup Reference Manual">
+<link rel="up" href="ch02.html" title="Core API">
+<link rel="prev" href="SoupURI.html" title="SoupURI">
+<link rel="next" href="ch03.html" title="Additional Features">
+<meta name="generator" content="GTK-Doc V1.18 (XML mode)">
+<link rel="stylesheet" href="style.css" type="text/css">
+</head>
+<body bgcolor="white" text="black" link="#0000FF" vlink="#840084" alink="#0000FF">
+<table class="navigation" id="top" width="100%" summary="Navigation header" cellpadding="2" cellspacing="2">
+<tr valign="middle">
+<td><a accesskey="p" href="SoupURI.html"><img src="left.png" width="24" height="24" border="0" alt="Prev"></a></td>
+<td><a accesskey="u" href="ch02.html"><img src="up.png" width="24" height="24" border="0" alt="Up"></a></td>
+<td><a accesskey="h" href="index.html"><img src="home.png" width="24" height="24" border="0" alt="Home"></a></td>
+<th width="100%" align="center">libsoup Reference Manual</th>
+<td><a accesskey="n" href="ch03.html"><img src="right.png" width="24" height="24" border="0" alt="Next"></a></td>
+</tr>
+<tr><td colspan="5" class="shortcuts">
+<a href="#libsoup-2.4-Version-Information.synopsis" class="shortcut">Top</a>
+                   | 
+                  <a href="#libsoup-2.4-Version-Information.description" class="shortcut">Description</a>
+</td></tr>
+</table>
+<div class="refentry">
+<a name="libsoup-2.4-Version-Information"></a><div class="titlepage"></div>
+<div class="refnamediv"><table width="100%"><tr>
+<td valign="top">
+<h2><span class="refentrytitle"><a name="libsoup-2.4-Version-Information.top_of_page"></a>Version Information</span></h2>
+<p>Version Information — Variables and functions to check the libsoup version</p>
+</td>
+<td valign="top" align="right"></td>
+</tr></table></div>
+<div class="refsynopsisdiv">
+<a name="libsoup-2.4-Version-Information.synopsis"></a><h2>Synopsis</h2>
+<pre class="synopsis">
+#include &lt;libsoup/soup.h&gt;
+
+<span class="returnvalue">guint</span>               <a class="link" href="libsoup-2.4-Version-Information.html#soup-get-major-version" title="soup_get_major_version ()">soup_get_major_version</a>              (<em class="parameter"><code><span class="type">void</span></code></em>);
+<span class="returnvalue">guint</span>               <a class="link" href="libsoup-2.4-Version-Information.html#soup-get-minor-version" title="soup_get_minor_version ()">soup_get_minor_version</a>              (<em class="parameter"><code><span class="type">void</span></code></em>);
+<span class="returnvalue">guint</span>               <a class="link" href="libsoup-2.4-Version-Information.html#soup-get-micro-version" title="soup_get_micro_version ()">soup_get_micro_version</a>              (<em class="parameter"><code><span class="type">void</span></code></em>);
+<span class="returnvalue">gboolean</span>            <a class="link" href="libsoup-2.4-Version-Information.html#soup-check-version" title="soup_check_version ()">soup_check_version</a>                  (<em class="parameter"><code><span class="type">guint</span> major</code></em>,
+                                                         <em class="parameter"><code><span class="type">guint</span> minor</code></em>,
+                                                         <em class="parameter"><code><span class="type">guint</span> micro</code></em>);
+
+#define             <a class="link" href="libsoup-2.4-Version-Information.html#SOUP-MAJOR-VERSION:CAPS" title="SOUP_MAJOR_VERSION">SOUP_MAJOR_VERSION</a>
+#define             <a class="link" href="libsoup-2.4-Version-Information.html#SOUP-MINOR-VERSION:CAPS" title="SOUP_MINOR_VERSION">SOUP_MINOR_VERSION</a>
+#define             <a class="link" href="libsoup-2.4-Version-Information.html#SOUP-MICRO-VERSION:CAPS" title="SOUP_MICRO_VERSION">SOUP_MICRO_VERSION</a>
+#define             <a class="link" href="libsoup-2.4-Version-Information.html#SOUP-CHECK-VERSION:CAPS" title="SOUP_CHECK_VERSION()">SOUP_CHECK_VERSION</a>                  (major,
+                                                         minor,
+                                                         micro)
+</pre>
+</div>
+<div class="refsect1">
+<a name="libsoup-2.4-Version-Information.description"></a><h2>Description</h2>
+</div>
+<div class="refsect1">
+<a name="libsoup-2.4-Version-Information.details"></a><h2>Details</h2>
+<div class="refsect2">
+<a name="soup-get-major-version"></a><h3>soup_get_major_version ()</h3>
+<pre class="programlisting"><span class="returnvalue">guint</span>               soup_get_major_version              (<em class="parameter"><code><span class="type">void</span></code></em>);</pre>
+<p>
+Returns the major version number of the libsoup library.
+(e.g. in libsoup version 2.42.0 this is 2.)
+</p>
+<p>
+This function is in the library, so it represents the libsoup library
+your code is running against. Contrast with the <a class="link" href="libsoup-2.4-Version-Information.html#SOUP-MAJOR-VERSION:CAPS" title="SOUP_MAJOR_VERSION"><span class="type">SOUP_MAJOR_VERSION</span></a>
+macro, which represents the major version of the libsoup headers you
+have included when compiling your code.
+</p>
+<div class="variablelist"><table border="0" class="variablelist">
+<colgroup>
+<col align="left" valign="top">
+<col>
+</colgroup>
+<tbody><tr>
+<td><p><span class="term"><span class="emphasis"><em>Returns</em></span> :</span></p></td>
+<td>the major version number of the libsoup library</td>
+</tr></tbody>
+</table></div>
+<p class="since">Since 2.42</p>
+</div>
+<hr>
+<div class="refsect2">
+<a name="soup-get-minor-version"></a><h3>soup_get_minor_version ()</h3>
+<pre class="programlisting"><span class="returnvalue">guint</span>               soup_get_minor_version              (<em class="parameter"><code><span class="type">void</span></code></em>);</pre>
+<p>
+Returns the minor version number of the libsoup library.
+(e.g. in libsoup version 2.42.0 this is 42.)
+</p>
+<p>
+This function is in the library, so it represents the libsoup library
+your code is running against. Contrast with the <a class="link" href="libsoup-2.4-Version-Information.html#SOUP-MINOR-VERSION:CAPS" title="SOUP_MINOR_VERSION"><span class="type">SOUP_MINOR_VERSION</span></a>
+macro, which represents the minor version of the libsoup headers you
+have included when compiling your code.
+</p>
+<div class="variablelist"><table border="0" class="variablelist">
+<colgroup>
+<col align="left" valign="top">
+<col>
+</colgroup>
+<tbody><tr>
+<td><p><span class="term"><span class="emphasis"><em>Returns</em></span> :</span></p></td>
+<td>the minor version number of the libsoup library</td>
+</tr></tbody>
+</table></div>
+<p class="since">Since 2.42</p>
+</div>
+<hr>
+<div class="refsect2">
+<a name="soup-get-micro-version"></a><h3>soup_get_micro_version ()</h3>
+<pre class="programlisting"><span class="returnvalue">guint</span>               soup_get_micro_version              (<em class="parameter"><code><span class="type">void</span></code></em>);</pre>
+<p>
+Returns the micro version number of the libsoup library.
+(e.g. in libsoup version 2.42.0 this is 0.)
+</p>
+<p>
+This function is in the library, so it represents the libsoup library
+your code is running against. Contrast with the <a class="link" href="libsoup-2.4-Version-Information.html#SOUP-MICRO-VERSION:CAPS" title="SOUP_MICRO_VERSION"><span class="type">SOUP_MICRO_VERSION</span></a>
+macro, which represents the micro version of the libsoup headers you
+have included when compiling your code.
+</p>
+<div class="variablelist"><table border="0" class="variablelist">
+<colgroup>
+<col align="left" valign="top">
+<col>
+</colgroup>
+<tbody><tr>
+<td><p><span class="term"><span class="emphasis"><em>Returns</em></span> :</span></p></td>
+<td>the micro version number of the libsoup library</td>
+</tr></tbody>
+</table></div>
+<p class="since">Since 2.42</p>
+</div>
+<hr>
+<div class="refsect2">
+<a name="soup-check-version"></a><h3>soup_check_version ()</h3>
+<pre class="programlisting"><span class="returnvalue">gboolean</span>            soup_check_version                  (<em class="parameter"><code><span class="type">guint</span> major</code></em>,
+                                                         <em class="parameter"><code><span class="type">guint</span> minor</code></em>,
+                                                         <em class="parameter"><code><span class="type">guint</span> micro</code></em>);</pre>
+<p>
+Like SOUP_CHECK_VERSION, but the check for soup_check_version is
+at runtime instead of compile time. This is useful for compiling
+against older versions of libsoup, but using features from newer
+versions.
+</p>
+<div class="variablelist"><table border="0" class="variablelist">
+<colgroup>
+<col align="left" valign="top">
+<col>
+</colgroup>
+<tbody>
+<tr>
+<td><p><span class="term"><em class="parameter"><code>major</code></em> :</span></p></td>
+<td>the major version to check</td>
+</tr>
+<tr>
+<td><p><span class="term"><em class="parameter"><code>minor</code></em> :</span></p></td>
+<td>the minor version to check</td>
+</tr>
+<tr>
+<td><p><span class="term"><em class="parameter"><code>micro</code></em> :</span></p></td>
+<td>the micro version to check</td>
+</tr>
+<tr>
+<td><p><span class="term"><span class="emphasis"><em>Returns</em></span> :</span></p></td>
+<td>
+<code class="literal">TRUE</code> if the version of the libsoup currently loaded
+is the same as or newer than the passed-in version.</td>
+</tr>
+</tbody>
+</table></div>
+<p class="since">Since 2.42</p>
+</div>
+<hr>
+<div class="refsect2">
+<a name="SOUP-MAJOR-VERSION:CAPS"></a><h3>SOUP_MAJOR_VERSION</h3>
+<pre class="programlisting">#define SOUP_MAJOR_VERSION (2)
+</pre>
+<p>
+Like <a class="link" href="libsoup-2.4-Version-Information.html#soup-get-major-version" title="soup_get_major_version ()"><code class="function">soup_get_major_version()</code></a>, but from the headers used at
+application compile time, rather than from the library linked
+against at application run time.
+</p>
+<p class="since">Since 2.42</p>
+</div>
+<hr>
+<div class="refsect2">
+<a name="SOUP-MINOR-VERSION:CAPS"></a><h3>SOUP_MINOR_VERSION</h3>
+<pre class="programlisting">#define SOUP_MINOR_VERSION (41)
+</pre>
+<p>
+Like <a class="link" href="libsoup-2.4-Version-Information.html#soup-get-minor-version" title="soup_get_minor_version ()"><code class="function">soup_get_minor_version()</code></a>, but from the headers used at
+application compile time, rather than from the library linked
+against at application run time.
+</p>
+<p class="since">Since 2.42</p>
+</div>
+<hr>
+<div class="refsect2">
+<a name="SOUP-MICRO-VERSION:CAPS"></a><h3>SOUP_MICRO_VERSION</h3>
+<pre class="programlisting">#define SOUP_MICRO_VERSION (0)
+</pre>
+<p>
+Like <a class="link" href="libsoup-2.4-Version-Information.html#soup-get-micro-version" title="soup_get_micro_version ()"><code class="function">soup_get_micro_version()</code></a>, but from the headers used at
+application compile time, rather than from the library linked
+against at application run time.
+</p>
+<p class="since">Since 2.42</p>
+</div>
+<hr>
+<div class="refsect2">
+<a name="SOUP-CHECK-VERSION:CAPS"></a><h3>SOUP_CHECK_VERSION()</h3>
+<pre class="programlisting">#define             SOUP_CHECK_VERSION(major, minor, micro)</pre>
+<div class="variablelist"><table border="0" class="variablelist">
+<colgroup>
+<col align="left" valign="top">
+<col>
+</colgroup>
+<tbody>
+<tr>
+<td><p><span class="term"><em class="parameter"><code>major</code></em> :</span></p></td>
+<td>major version (e.g. 2 for version 2.42.0)</td>
+</tr>
+<tr>
+<td><p><span class="term"><em class="parameter"><code>minor</code></em> :</span></p></td>
+<td>minor version (e.g. 42 for version 2.42.0)</td>
+</tr>
+<tr>
+<td><p><span class="term"><em class="parameter"><code>micro</code></em> :</span></p></td>
+<td>micro version (e.g. 0 for version 2.42.0)</td>
+</tr>
+<tr>
+<td><p><span class="term"><span class="emphasis"><em>Returns</em></span> :</span></p></td>
+<td>
+<code class="literal">TRUE</code> if the version of the libsoup header files
+is the same as or newer than the passed-in version.</td>
+</tr>
+</tbody>
+</table></div>
+<p class="since">Since 2.42</p>
+</div>
+</div>
+</div>
+<div class="footer">
+<hr>
+          Generated by GTK-Doc V1.18</div>
+</body>
+</html>
