@@ -14,6 +14,11 @@ INCLUDES = 				\
 	$(XML_CFLAGS)			\
 	$(SQLITE_CFLAGS)
 
+if SQLLITE_SUPPORT
+soup_headers +=     \
+    soup-cookie-jar-sqlite.h
+endif
+
 libsoupincludedir = $(includedir)/libsoup-2.4/libsoup
 
 soup_headers =			\
@@ -85,6 +90,11 @@ libsoup_2_4_la_LIBADD =			\
 	$(GLIB_LIBS)			\
 	$(XML_LIBS)			\
 	$(SQLITE_LIBS)
+
+if SQLLITE_SUPPORT
+libsoup_2_4_la_LIBADD +=        \
+    $(SQLITE_LIBS)
+endif
 
 libsoup_2_4_la_SOURCES =		\
 	soup-address.c			\
@@ -188,6 +198,10 @@ TLD_DATA_FILE=$(top_srcdir)/data/effective_tld_names.dat
 
 tld_data.inc: tld-parser.py $(TLD_DATA_FILE)
 	$(srcdir)/tld-parser.py $(TLD_DATA_FILE) tld_data.inc
+if SQLLITE_SUPPORT
+libsoup_2_4_la_SOURCES +=       \
+								    soup-cookie-jar-sqlite.c
+endif
 
 if BUILD_LIBSOUP_GNOME
 
