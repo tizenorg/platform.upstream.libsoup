@@ -18,10 +18,6 @@ AM_CPPFLAGS = 				\
 	$(XML_CFLAGS)			\
 	$(SQLITE_CFLAGS)
 
-if SQLLITE_SUPPORT
-soup_headers +=     \
-    soup-cookie-jar-sqlite.h
-endif
 
 libsoupincludedir = $(includedir)/libsoup-2.4/libsoup
 
@@ -73,6 +69,11 @@ soup_headers =			\
 	soup-uri.h		\
 	soup-value-utils.h	\
 	soup-xmlrpc.h
+
+if SQLLITE_SUPPORT
+soup_headers +=     \
+    soup-cookie-jar-sqlite.h
+endif
 
 libsoupinclude_HEADERS =	\
 	$(soup_headers)		\
