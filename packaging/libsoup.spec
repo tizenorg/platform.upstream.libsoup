@@ -62,6 +62,7 @@ Features:
 %setup -q
 
 %build
+%autogen
 %configure\
     --disable-static \
     --enable-introspection \
