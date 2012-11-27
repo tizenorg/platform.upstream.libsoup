@@ -64,7 +64,8 @@ Features:
 %build
 %configure\
     --disable-static \
-    --enable-introspection
+    --enable-introspection \
+    --without-gnome --enable-sqllite=yes --disable-tls-check
 make %{?_smp_mflags}
 
 %install
