@@ -169,7 +169,7 @@ AC_SUBST(HAVE_GNOME)
 dnl ***************
 dnl *** gtk-doc ***
 dnl ***************
-GTK_DOC_CHECK([1.10])
+dnl GTK_DOC_CHECK([1.10])
 
 dnl *****************************
 dnl *** gobject-introspection ***
