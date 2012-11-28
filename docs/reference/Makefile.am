@@ -73,7 +73,6 @@ GTKDOC_LIBS =						\
 	$(GLIB_LIBS)
 
 # include common portion ...
-include $(top_srcdir)/gtk-doc.make
 
 # kludges
 $(srcdir)/tmpl/*.sgml:
