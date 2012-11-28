@@ -15,7 +15,6 @@ BuildRequires:  glib-networking
 %if 0%{?enable_gnome}
 BuildRequires:  gobject-introspection-devel
 %endif
-BuildRequires:  gtk-doc
 BuildRequires:  intltool >= 0.35.0
 BuildRequires:  sqlite3-devel
 BuildRequires:  pkgconfig(glib-2.0) >= 2.31.7
