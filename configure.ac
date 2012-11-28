@@ -199,7 +199,7 @@ AC_SUBST(SQLITE_LIBS)
 dnl ***************
 dnl *** gtk-doc ***
 dnl ***************
-GTK_DOC_CHECK([1.10])
+dnl GTK_DOC_CHECK([1.10])
 
 dnl *****************************
 dnl *** gobject-introspection ***
