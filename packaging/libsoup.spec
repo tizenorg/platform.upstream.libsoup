@@ -14,6 +14,7 @@ BuildRequires:  gettext-tools
 BuildRequires:  glib-networking
 %if %{with gnome}
 BuildRequires:  gobject-introspection-devel
+BuildRequires:  pkgconfig(gnome-keyring-1)
 %endif
 BuildRequires:  intltool >= 0.35.0
 BuildRequires:  sqlite3-devel
