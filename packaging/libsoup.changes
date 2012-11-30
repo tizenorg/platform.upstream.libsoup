@@ -1,3 +1,6 @@
+* Fri Nov 30 2012 Anas Nashif <anas.nashif@intel.com> LIBSOUP_2_40_1@38c7716
+- add missing slash in %configure
+
 * Fri Nov 30 2012 Anas Nashif <anas.nashif@intel.com> SOUP_0_4@fda940a
 - Make gnome support conditional
 

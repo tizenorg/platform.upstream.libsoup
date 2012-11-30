@@ -71,7 +71,7 @@ Features:
 %autogen\
 %if %{with gnome}
      --with-gnome \
-    --enable-introspection
+     --enable-introspection \
 %else
      --without-gnome \
      --enable-sqllite=yes \
