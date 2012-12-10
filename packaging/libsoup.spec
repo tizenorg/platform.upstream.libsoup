@@ -18,7 +18,7 @@ BuildRequires:  pkgconfig(gnome-keyring-1)
 %endif
 BuildRequires:  intltool >= 0.35.0
 BuildRequires:  sqlite3-devel
-BuildRequires:  pkgconfig(glib-2.0) >= 2.31.7
+BuildRequires:  pkgconfig(glib-2.0) >= 2.35.0
 BuildRequires:  gnome-common
 BuildRequires:  pkgconfig(libxml-2.0)
 
