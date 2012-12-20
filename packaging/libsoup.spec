@@ -2,7 +2,7 @@
 
 Name:           libsoup
 Version:        2.41.2
-Release:        2.1
+Release:        0
 License:        LGPL-2.1+
 Summary:        HTTP client/server library for GNOME
 Url:            http://www.gnome.org
@@ -70,11 +70,11 @@ Features:
 %build
 %autogen\
 %if %{with gnome}
-     --with-gnome \
-     --enable-introspection \
+    --with-gnome \
+    --enable-introspection \
 %else
-     --without-gnome \
-     --enable-sqllite=yes \
+    --without-gnome \
+    --enable-sqllite=yes \
     --disable-tls-check \
 %endif
     --disable-static 
@@ -93,7 +93,7 @@ make %{?_smp_mflags}
 
 %files
 %defattr(-, root, root)
-%license  COPYING
+%license COPYING
 %{_libdir}/*.so.*
 
 %files -n typelib-Soup
