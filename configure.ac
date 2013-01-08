@@ -132,11 +132,11 @@ dnl *************************
 dnl *** SQL Lite support independently of gnome for Tizen  ***
 dnl *************************
 
-AC_ARG_ENABLE(sqllite,
-         AS_HELP_STRING([--enable-sqllite], [Enable SQL lite support ]),        ,
-         enable_sqllite=no)
+AC_ARG_ENABLE(sqlite,
+         AS_HELP_STRING([--enable-sqlite], [Enable SQL lite support ]),        ,
+         enable_sqlite=no)
 
-if test "$enable_sqllite" != "no"; then
+if test "$enable_sqlite" != "no"; then
    PKG_CHECK_MODULES(SQLITE, sqlite3, :, [AC_MSG_ERROR(dnl
 [Could not find sqlite3 devel files:
 

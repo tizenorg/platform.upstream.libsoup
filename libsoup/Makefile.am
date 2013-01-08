@@ -74,6 +74,10 @@ if SQLLITE_SUPPORT
 soup_headers +=     \
     soup-cookie-jar-sqlite.h
 endif
+if BUILD_LIBSOUP_GNOME
+soup_headers +=     \
+    soup-cookie-jar-sqlite.h
+endif
 
 libsoupinclude_HEADERS =	\
 	$(soup_headers)		\
@@ -97,10 +101,8 @@ libsoup_2_4_la_LIBADD =			\
 	$(XML_LIBS)			\
 	$(SQLITE_LIBS)
 
-if SQLLITE_SUPPORT
 libsoup_2_4_la_LIBADD +=        \
     $(SQLITE_LIBS)
-endif
 
 libsoup_2_4_la_SOURCES =		\
 	soup-address.c			\
@@ -202,10 +204,9 @@ TLD_DATA_FILE=$(top_srcdir)/data/effective_tld_names.dat
 
 tld_data.inc: tld-parser.py $(TLD_DATA_FILE)
 	$(srcdir)/tld-parser.py $(TLD_DATA_FILE) tld_data.inc
-if SQLLITE_SUPPORT
+
 libsoup_2_4_la_SOURCES +=       \
-								    soup-cookie-jar-sqlite.c
-endif
+    soup-cookie-jar-sqlite.c
 
 if BUILD_LIBSOUP_GNOME
 
@@ -230,7 +231,6 @@ libsoup_gnome_2_4_la_LIBADD =		\
 	$(GLIB_LIBS)
 
 libsoup_gnome_2_4_la_SOURCES =		\
-	soup-cookie-jar-sqlite.c	\
 	soup-gnome-features.c		\
 	soup-proxy-resolver-gnome.h	\
 	soup-proxy-resolver-gnome.c	\
