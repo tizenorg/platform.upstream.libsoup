@@ -485,6 +485,8 @@ soup_xmlrpc_parse_method_response
 soup_xmlrpc_request_new
 soup_xmlrpc_set_fault
 soup_xmlrpc_set_response
+soup_cookie_jar_sqlite_new
+soup_cookie_jar_sqlite_get_type
 _SOUP_METHOD_CONNECT
 _SOUP_METHOD_COPY
 _SOUP_METHOD_DELETE
