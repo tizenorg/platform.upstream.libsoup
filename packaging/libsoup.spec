@@ -49,7 +49,9 @@ This package provides the GObject Introspection bindings for libsoup.
 Summary:        HTTP client/server library for GNOME - Development Files
 Group:          Development/Libraries/GNOME
 Requires:       %{name} = %{version}
+%if %{with gnome}
 Requires:       typelib-Soup = %{version}
+%endif
 
 %description devel
 Libsoup is an HTTP client/server library for GNOME. It uses GObjects
