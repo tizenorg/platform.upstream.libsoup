@@ -19,13 +19,13 @@ if test -z $INTLTOOLIZE; then
         exit 1
 fi
 
-GTKDOCIZE=`which gtkdocize`
-if test -z $GTKDOCIZE; then
-        echo "*** No GTK-Doc found, please install it ***"
-        exit 1
-fi
+#GTKDOCIZE=`which gtkdocize`
+#if test -z $GTKDOCIZE; then
+#        echo "*** No GTK-Doc found, please install it ***"
+#        exit 1
+#fi
 
-gtkdocize || exit $?
+#gtkdocize || exit $?
 intltoolize --automake --copy
 autoreconf --force --install --verbose
 
