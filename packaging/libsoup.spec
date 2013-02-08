@@ -1,12 +1,12 @@
 %bcond_with gnome
 
 Name:           libsoup
-Version:        2.41.2
+Version:        2.41.5
 Release:        0
 License:        LGPL-2.1+
 Summary:        HTTP client/server library for GNOME
 Url:            http://www.gnome.org
-Group:          Development/Libraries/GNOME
+Group:          System/Libraries
 Source:         http://download.gnome.org/sources/libsoup/2.40/%{name}-%{version}.tar.xz
 Source99:       baselibs.conf
 BuildRequires:  gettext-tools
@@ -20,6 +20,7 @@ BuildRequires:  sqlite3-devel
 BuildRequires:  pkgconfig(glib-2.0) >= 2.35.0
 BuildRequires:  gnome-common
 BuildRequires:  pkgconfig(libxml-2.0)
+
 
 %description
 Libsoup is an HTTP client/server library for GNOME. It uses GObjects
@@ -46,7 +47,7 @@ This package provides the GObject Introspection bindings for libsoup.
 
 %package devel
 Summary:        HTTP client/server library for GNOME - Development Files
-Group:          Development/Libraries/GNOME
+Group:          Development/Gnome
 Requires:       %{name} = %{version}
 %if %{with gnome}
 Requires:       typelib-Soup = %{version}
