@@ -70,7 +70,7 @@ soup_headers =			\
 	soup-value-utils.h	\
 	soup-xmlrpc.h
 
-if SQLLITE_SUPPORT
+if SQLITE_SUPPORT
 soup_headers +=     \
     soup-cookie-jar-sqlite.h
 endif
