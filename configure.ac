@@ -147,7 +147,7 @@ fi
 AC_SUBST(SQLITE_CFLAGS)
 AC_SUBST(SQLITE_LIBS)
 
-AM_CONDITIONAL(SQLLITE_SUPPORT, [test $enable_sqllite = yes])
+AM_CONDITIONAL(SQLITE_SUPPORT, [test $enable_sqllite = yes])
 
 dnl *********************
 dnl *** GNOME support ***
