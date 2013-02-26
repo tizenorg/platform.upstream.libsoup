@@ -1,13 +1,13 @@
 %bcond_with gnome
 
 Name:           libsoup
-Version:        2.41.5
+Version:        2.41.90
 Release:        0
 License:        LGPL-2.1+
 Summary:        HTTP client/server library for GNOME
 Url:            http://www.gnome.org
 Group:          System/Libraries
-Source:         http://download.gnome.org/sources/libsoup/2.40/%{name}-%{version}.tar.xz
+Source:         http://download.gnome.org/sources/libsoup/2.41/%{name}-%{version}.tar.xz
 Source99:       baselibs.conf
 BuildRequires:  gettext-tools
 BuildRequires:  glib-networking
