@@ -127,6 +127,8 @@ typedef struct {
 	char **http_aliases, **https_aliases;
 
 	GHashTable *request_types;
+
+	char *certificate_path;
 } SoupSessionPrivate;
 #define SOUP_SESSION_GET_PRIVATE(o) (G_TYPE_INSTANCE_GET_PRIVATE ((o), SOUP_TYPE_SESSION, SoupSessionPrivate))
 
@@ -195,6 +197,7 @@ enum {
 	PROP_HTTP_ALIASES,
 	PROP_HTTPS_ALIASES,
 	PROP_LOCAL_ADDRESS,
+	PROP_CERTIFICATE_PATH,
 
 	LAST_PROP
 };
@@ -343,6 +346,7 @@ soup_session_finalize (GObject *object)
 	g_free (priv->https_aliases);
 
 	g_hash_table_destroy (priv->request_types);
+	g_free (priv->certificate_path);
 
 	G_OBJECT_CLASS (soup_session_parent_class)->finalize (object);
 }
@@ -680,6 +684,13 @@ soup_session_set_property (GObject *object, guint prop_id,
 	case PROP_HTTPS_ALIASES:
 		set_aliases (&priv->https_aliases, g_value_get_boxed (value));
 		break;
+        case PROP_CERTIFICATE_PATH:
+		if (priv->certificate_path) {
+			g_free (priv->certificate_path);
+			priv->certificate_path = NULL;
+		}
+		priv->certificate_path = g_strdup (g_value_get_string (value));
+		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
 		break;
@@ -764,6 +775,9 @@ soup_session_get_property (GObject *object, guint prop_id,
 		break;
 	case PROP_HTTPS_ALIASES:
 		g_value_set_boxed (value, priv->https_aliases);
+		break;
+        case PROP_CERTIFICATE_PATH:
+		g_value_set_string (value, priv->certificate_path);
 		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -1779,6 +1793,33 @@ get_connection (SoupMessageQueueItem *item, gboolean *should_cleanup)
 	}
 }
 
+static void
+soup_session_set_certificate_file(SoupSession *session, SoupMessageQueueItem *item)
+{
+	SoupSessionPrivate *priv = SOUP_SESSION_GET_PRIVATE (session);
+	SoupURI *uri;
+
+	if (!priv->certificate_path)
+		return;
+
+	uri = soup_message_get_uri (item->msg);
+
+	if (uri_is_https (priv, uri) && (!priv->tlsdb)) {
+		GError* error = NULL;
+		GTlsDatabase* tlsdb = g_tls_file_database_new(priv->certificate_path, &error);
+		if (!error && tlsdb) {
+			set_tlsdb (session, tlsdb);
+		}
+
+		if (tlsdb)
+			g_object_unref (tlsdb);
+		if (priv->certificate_path) {
+			g_free (priv->certificate_path);
+			priv->certificate_path = NULL;
+		}
+       }
+}
+
 void
 soup_session_process_queue_item (SoupSession          *session,
 				 SoupMessageQueueItem *item,
@@ -1793,6 +1834,7 @@ soup_session_process_queue_item (SoupSession          *session,
 
 		switch (item->state) {
 		case SOUP_MESSAGE_STARTING:
+			soup_session_set_certificate_file(session, item);
 			if (!get_connection (item, should_cleanup))
 				return;
 			break;
@@ -3575,6 +3617,21 @@ soup_session_class_init (SoupSessionClass *session_class)
 				     "Address of local end of socket",
 				     SOUP_TYPE_ADDRESS,
 				     G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY));
+
+	/**
+	 * SOUP_SESSION_CERTIFICATE_PATH
+	 * SoupSession:certificate-path:
+	 *
+	 * Set the certificate path for soup session
+	 *
+	 */
+	g_object_class_install_property (
+		object_class, PROP_CERTIFICATE_PATH,
+		g_param_spec_string (SOUP_SESSION_CERTIFICATE_PATH,
+				      "certificate file path",
+				      "Set the ca-certificate.crt file path",
+				      NULL,
+				      G_PARAM_READWRITE));
 }
 
 
