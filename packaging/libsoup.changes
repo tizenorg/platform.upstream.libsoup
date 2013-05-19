@@ -1,3 +1,6 @@
+* Sun May 19 2013 Rusty Lynch <rusty.lynch@intel.com> submit/tizen/20130517.023122@e301db1
+- Add SOUP_SESSION_CERTIFICATE_PATH support
+
 * Fri Apr 26 2013 Anas Nashif <anas.nashif@intel.com> LIBSOUP_2_42_2@a5d8b6d
 - Update to 2.42.2
 
