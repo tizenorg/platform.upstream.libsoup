@@ -1,0 +1,9 @@
+Change-Id: Ie301db193aa43dff8391f7739ab3bbfa33a09fa0
+Code-Review+2: Anas Nashif
+Code-Review+1: Rusty Lynch <rusty.lynch@intel.com>
+Verified+1: Rusty Lynch <rusty.lynch@intel.com>
+Submitted-by: Anas Nashif
+Submitted-at: Sun, 19 May 2013 18:31:12 -0700
+Reviewed-on: https://review.tizen.org/gerrit/3578
+Project: platform/upstream/libsoup
+Branch: refs/heads/tizen
