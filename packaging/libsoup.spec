@@ -9,6 +9,7 @@ Url:            http://www.gnome.org
 Group:          System/Libraries
 Source:         http://download.gnome.org/sources/libsoup/2.41/%{name}-%{version}.tar.xz
 Source99:       baselibs.conf
+Source1001: 	libsoup.manifest
 BuildRequires:  gettext-tools
 BuildRequires:  glib-networking
 %if %{with gnome}
@@ -68,6 +69,7 @@ Features:
 
 %prep
 %setup -q
+cp %{SOURCE1001} .
 
 %build
 %autogen\
@@ -94,18 +96,21 @@ make %{?_smp_mflags}
 %lang_package
 
 %files
+%manifest %{name}.manifest
 %defattr(-, root, root)
 %license COPYING
 %{_libdir}/*.so.*
 
 %if %{with gnome}
 %files -n typelib-Soup
+%manifest %{name}.manifest
 %defattr(-,root,root)
 %{_libdir}/girepository-1.0/Soup-2.4.typelib
 %{_libdir}/girepository-1.0/SoupGNOME-2.4.typelib
 %endif
 
 %files devel
+%manifest %{name}.manifest
 %defattr(-,root,root)
 %{_includedir}/libsoup-2.4
 %{_libdir}/*.so
