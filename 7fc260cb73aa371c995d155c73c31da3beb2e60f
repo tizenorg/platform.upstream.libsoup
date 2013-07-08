@@ -1,0 +1,8 @@
+Change-Id: I7fc260cb73aa371c995d155c73c31da3beb2e60f
+Code-Review+2: Ryan Ware <ware@linux.intel.com>
+Verified+1: Ryan Ware <ware@linux.intel.com>
+Submitted-by: Ryan Ware <ware@linux.intel.com>
+Submitted-at: Mon, 08 Jul 2013 09:37:39 -0700
+Reviewed-on: https://review.tizen.org/gerrit/5182
+Project: platform/upstream/libsoup
+Branch: refs/heads/tizen
