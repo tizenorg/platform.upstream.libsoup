@@ -10,6 +10,7 @@ Group:          System/Libraries
 Source:         http://download.gnome.org/sources/libsoup/2.41/%{name}-%{version}.tar.xz
 Source99:       baselibs.conf
 Source1001: 	libsoup.manifest
+Requires:       glib-networking
 BuildRequires:  gettext-tools
 BuildRequires:  glib-networking
 %if %{with gnome}
