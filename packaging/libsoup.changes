@@ -1,3 +1,6 @@
+* Thu Jul 11 2013 Joone Hur <joone.hur@intel.com> accepted/tizen/20130710.215731@8002bd7
+- Add glib-networking to the libsoup dependency requirements.
+
 * Sun May 19 2013 Rusty Lynch <rusty.lynch@intel.com> submit/tizen/20130517.023122@e301db1
 - Add SOUP_SESSION_CERTIFICATE_PATH support
 
