@@ -112,6 +112,9 @@ enum {
 	FINISHED,
 
 	NETWORK_EVENT,
+/* #if ENABLE(TIZEN_ON_AUTHENTICATION_REQUESTED) */
+	AUTHENTICATE,
+/* #endif */
 
 	LAST_SIGNAL
 };
@@ -643,6 +646,19 @@ soup_message_class_init (SoupMessageClass *message_class)
 			      G_TYPE_SOCKET_CLIENT_EVENT,
 			      G_TYPE_IO_STREAM);
 
+	/* #if ENABLE(TIZEN_ON_AUTHENTICATION_REQUESTED) */
+	signals[AUTHENTICATE] =
+		g_signal_new ("authenticate",
+			      G_OBJECT_CLASS_TYPE (object_class),
+			      G_SIGNAL_RUN_FIRST,
+			      G_STRUCT_OFFSET (SoupMessageClass, authenticate),
+			      NULL, NULL,
+			      _soup_marshal_NONE__OBJECT_BOOLEAN,
+			      G_TYPE_NONE, 2,
+			      SOUP_TYPE_AUTH,
+			      G_TYPE_BOOLEAN);
+	/* #endif */
+
 	/* properties */
 	/**
 	 * SOUP_MESSAGE_METHOD:
@@ -1062,6 +1078,14 @@ soup_message_network_event (SoupMessage         *msg,
 	g_signal_emit (msg, signals[NETWORK_EVENT], 0,
 		       event, connection);
 }
+
+/* #if ENABLE(TIZEN_ON_AUTHENTICATION_REQUESTED) */
+void
+soup_message_authenticate (SoupMessage *msg, SoupAuth *auth, gboolean retrying)
+{
+	g_signal_emit (msg, signals[AUTHENTICATE], 0, auth, retrying);
+}
+/* #endif */
 
 static void
 header_handler_free (gpointer header_name, GClosure *closure)
