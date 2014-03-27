@@ -1,4 +1,5 @@
 %bcond_with gnome
+%bcond_with introspection
 
 Name:           libsoup
 Version:        2.46.0
@@ -13,8 +14,10 @@ Source1001: 	libsoup.manifest
 Requires:       glib-networking
 BuildRequires:  gettext-tools
 BuildRequires:  glib-networking
-%if %{with gnome}
+%if %{with introspection}
 BuildRequires:  gobject-introspection-devel
+%endif
+%if %{with gnome}
 BuildRequires:  pkgconfig(gnome-keyring-1)
 %endif
 BuildRequires:  intltool >= 0.35.0
@@ -75,9 +78,11 @@ cp %{SOURCE1001} .
 %build
 chmod +x autogen.sh
 %autogen\
+%if %{with introspection}
+    --enable-introspection \
+%endif
 %if %{with gnome}
     --with-gnome \
-    --enable-introspection \
 %else
     --without-gnome \
     --enable-sqlite=yes \
@@ -103,12 +108,14 @@ make %{?_smp_mflags}
 %license COPYING
 %{_libdir}/*.so.*
 
-%if %{with gnome}
+%if %{with introspection}
 %files -n typelib-Soup
 %manifest %{name}.manifest
 %defattr(-,root,root)
 %{_libdir}/girepository-1.0/Soup-2.4.typelib
+%if %{with gnome}
 %{_libdir}/girepository-1.0/SoupGNOME-2.4.typelib
+%endif
 %endif
 
 %files devel
@@ -117,8 +124,10 @@ make %{?_smp_mflags}
 %{_includedir}/libsoup-2.4
 %{_libdir}/*.so
 %{_libdir}/pkgconfig/*.pc
-%if %{with gnome}
+%if %{with introspection}
 %{_datadir}/gir-1.0/Soup-2.4.gir
+%if %{with gnome}
 %{_datadir}/gir-1.0/SoupGNOME-2.4.gir
 %{_includedir}/libsoup-gnome-2.4
+%endif
 %endif
