@@ -1,7 +1,7 @@
 %bcond_with gnome
 
 Name:           libsoup
-Version:        2.42.2
+Version:        2.46.0
 Release:        0
 License:        LGPL-2.1+
 Summary:        HTTP client/server library for GNOME
