@@ -50,7 +50,6 @@ typedef struct {
 	void     (*got_body)            (SoupMessage *msg);
 	void     (*restarted)           (SoupMessage *msg);
 	void     (*finished)            (SoupMessage *msg);
-	void     (*authenticate)        (SoupMessage *msg, SoupAuth *auth, gboolean retrying);
 
 	/* Padding for future expansion */
 	void (*_libsoup_reserved1) (void);
@@ -219,7 +218,6 @@ void soup_message_got_body            (SoupMessage *msg);
 void soup_message_content_sniffed     (SoupMessage *msg, const char *content_type, GHashTable *params);
 void soup_message_restarted           (SoupMessage *msg);
 void soup_message_finished            (SoupMessage *msg);
-void soup_message_authenticate        (SoupMessage *msg, SoupAuth *auth, gboolean retrying);
 
 G_END_DECLS
 
