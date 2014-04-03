@@ -82,7 +82,6 @@ GType soup_session_get_type (void);
 #define SOUP_SESSION_REMOVE_FEATURE_BY_TYPE "remove-feature-by-type"
 #define SOUP_SESSION_HTTP_ALIASES       "http-aliases"
 #define SOUP_SESSION_HTTPS_ALIASES      "https-aliases"
-#define SOUP_SESSION_CERTIFICATE_PATH        "certificate-path"
 
 SOUP_AVAILABLE_IN_2_42
 SoupSession    *soup_session_new              (void);
