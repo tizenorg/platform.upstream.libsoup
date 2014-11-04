@@ -9,6 +9,9 @@
 #include <config.h>
 #endif
 
+#undef SOUP_VERSION_MIN_REQUIRED
+#define SOUP_VERSION_MIN_REQUIRED SOUP_VERSION_2_42
+
 #include "soup-proxy-resolver-default.h"
 #include "soup.h"
 
@@ -16,19 +19,19 @@
  * SECTION:soup-proxy-resolver-default
  * @short_description: System proxy configuration integration
  *
- * #SoupProxyResolverDefault is a #SoupProxyURIResolver implementation
- * that uses the default gio GProxyResolver to resolve proxies.
+ * #SoupProxyResolverDefault is a <type>SoupProxyURIResolver</type>
+ * implementation that uses the default gio #GProxyResolver to resolve
+ * proxies.
  *
- * If you are using a plain #SoupSession (ie, not #SoupSessionAsync or
- * #SoupSessionSync), then a #SoupProxyResolverDefault will
- * automatically be added to the session. (You can use
- * %SOUP_SESSION_REMOVE_FEATURE_BY_TYPE at construct time if you don't
- * want this.) If you are using one of the deprecated #SoupSession
- * subclasses, you can add a #SoupProxyResolverDefault to your session
- * with soup_session_add_feature() or
- * soup_session_add_feature_by_type().
+ * In libsoup 2.44 and later, you can set the session's
+ * #SoupSession:proxy-resolver property to the resolver returned by
+ * g_proxy_resolver_get_default() to get the same effect. Note that
+ * for "plain" #SoupSessions (ie, not #SoupSessionAsync or
+ * #SoupSessionSync), this is done for you automatically.
  *
  * Since: 2.34
+ *
+ * Deprecated: Use #SoupSession:proxy-resolver
  */
 
 static void soup_proxy_resolver_default_interface_init (SoupProxyURIResolverInterface *proxy_resolver_interface);

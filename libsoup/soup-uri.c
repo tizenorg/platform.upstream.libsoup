@@ -263,10 +263,13 @@ soup_uri_new_with_base (SoupURI *base, const char *uri_string)
 		end = hash;
 	}
 
-	/* Find scheme: initial [a-z+.-]* substring until ":" */
+	/* Find scheme */
 	p = uri_string;
 	while (p < end && (g_ascii_isalpha (*p) ||
-			   *p == '.' || *p == '+' || *p == '-'))
+			   (p > uri_string && (g_ascii_isdigit (*p) ||
+					       *p == '.' ||
+					       *p == '+' ||
+					       *p == '-'))))
 		p++;
 
 	if (p > uri_string && *p == ':') {
@@ -290,21 +293,23 @@ soup_uri_new_with_base (SoupURI *base, const char *uri_string)
 		if (at && at < path) {
 			colon = strchr (uri_string, ':');
 			if (colon && colon < at) {
-				uri->password = uri_decoded_copy (colon + 1,
-								  at - colon - 1, NULL);
+				uri->password = soup_uri_decoded_copy (colon + 1,
+								       at - colon - 1, NULL);
 			} else {
 				uri->password = NULL;
 				colon = at;
 			}
 
-			uri->user = uri_decoded_copy (uri_string,
-						      colon - uri_string, NULL);
+			uri->user = soup_uri_decoded_copy (uri_string,
+							   colon - uri_string, NULL);
 			uri_string = at + 1;
 		} else
 			uri->user = uri->password = NULL;
 
 		/* Find host and port. */
 		if (*uri_string == '[') {
+			const char *pct;
+
 			uri_string++;
 			hostend = strchr (uri_string, ']');
 			if (!hostend || hostend > path) {
@@ -315,12 +320,19 @@ soup_uri_new_with_base (SoupURI *base, const char *uri_string)
 				colon = hostend + 1;
 			else
 				colon = NULL;
+
+			pct = memchr (uri_string, '%', hostend - uri_string);
+			if (!pct || (pct[1] == '2' && pct[2] == '5')) {
+				uri->host = soup_uri_decoded_copy (uri_string,
+								   hostend - uri_string, NULL);
+			} else
+				uri->host = g_strndup (uri_string, hostend - uri_string);
 		} else {
 			colon = memchr (uri_string, ':', path - uri_string);
 			hostend = colon ? colon : path;
+			uri->host = soup_uri_decoded_copy (uri_string,
+							   hostend - uri_string, NULL);
 		}
-
-		uri->host = uri_decoded_copy (uri_string, hostend - uri_string, NULL);
 
 		if (colon && colon != path - 1) {
 			char *portend;
@@ -510,8 +522,16 @@ soup_uri_to_string_internal (SoupURI *uri, gboolean just_path_and_query,
 			g_string_append_c (str, '@');
 		}
 		if (strchr (uri->host, ':')) {
+			const char *pct;
+
 			g_string_append_c (str, '[');
-			g_string_append (str, uri->host);
+			pct = strchr (uri->host, '%');
+			if (pct) {
+				g_string_append_printf (str, "%.*s%%25%s",
+							(int) (pct - uri->host),
+							uri->host, pct + 1);
+			} else
+				g_string_append (str, uri->host);
 			g_string_append_c (str, ']');
 		} else
 			append_uri_encoded (str, uri->host, ":/");
@@ -555,6 +575,9 @@ soup_uri_to_string_internal (SoupURI *uri, gboolean just_path_and_query,
  * If @just_path_and_query is %TRUE, this concatenates the path and query
  * together. That is, it constructs the string that would be needed in
  * the Request-Line of an HTTP request for @uri.
+ *
+ * Note that the output will never contain a password, even if @uri
+ * does.
  *
  * Return value: a string representing @uri, which the caller must free.
  **/
@@ -701,13 +724,14 @@ soup_uri_encode (const char *part, const char *escape_extra)
 #define HEXCHAR(s) ((XDIGIT (s[1]) << 4) + XDIGIT (s[2]))
 
 char *
-uri_decoded_copy (const char *part, int length, int *decoded_length)
+soup_uri_decoded_copy (const char *part, int length, int *decoded_length)
 {
 	unsigned char *s, *d;
-	char *decoded = g_strndup (part, length);
+	char *decoded;
 
 	g_return_val_if_fail (part != NULL, NULL);
 
+	decoded = g_strndup (part, length);
 	s = d = (unsigned char *)decoded;
 	do {
 		if (*s == '%') {
@@ -745,7 +769,7 @@ soup_uri_decode (const char *part)
 {
 	g_return_val_if_fail (part != NULL, NULL);
 
-	return uri_decoded_copy (part, strlen (part), NULL);
+	return soup_uri_decoded_copy (part, strlen (part), NULL);
 }
 
 static char *
@@ -862,29 +886,6 @@ soup_uri_uses_default_port (SoupURI *uri)
 
 	return uri->port == soup_scheme_default_port (uri->scheme);
 }
-
-/**
- * SOUP_URI_SCHEME_HTTP:
- *
- * "http" as an interned string. This can be compared directly against
- * the value of a #SoupURI's <structfield>scheme</structfield>
- **/
-
-/**
- * SOUP_URI_SCHEME_HTTPS:
- *
- * "https" as an interned string. This can be compared directly
- * against the value of a #SoupURI's <structfield>scheme</structfield>
- **/
-
-/**
- * SOUP_URI_SCHEME_RESOURCE:
- *
- * "resource" as an interned string. This can be compared directly
- * against the value of a #SoupURI's <structfield>scheme</structfield>
- *
- * Since: 2.42
- **/
 
 /**
  * soup_uri_get_scheme:
@@ -1294,6 +1295,49 @@ soup_uri_host_equal (gconstpointer v1, gconstpointer v2)
 		return FALSE;
 
 	return g_ascii_strcasecmp (one->host, two->host) == 0;
+}
+
+gboolean
+soup_uri_is_http (SoupURI *uri, char **aliases)
+{
+	int i;
+
+	if (uri->scheme == SOUP_URI_SCHEME_HTTP)
+		return TRUE;
+	else if (uri->scheme == SOUP_URI_SCHEME_HTTPS)
+		return FALSE;
+	else if (!aliases)
+		return FALSE;
+
+	for (i = 0; aliases[i]; i++) {
+		if (uri->scheme == aliases[i])
+			return TRUE;
+	}
+
+	if (!aliases[1] && !strcmp (aliases[0], "*"))
+		return TRUE;
+	else
+		return FALSE;
+}
+
+gboolean
+soup_uri_is_https (SoupURI *uri, char **aliases)
+{
+	int i;
+
+	if (uri->scheme == SOUP_URI_SCHEME_HTTPS)
+		return TRUE;
+	else if (uri->scheme == SOUP_URI_SCHEME_HTTP)
+		return FALSE;
+	else if (!aliases)
+		return FALSE;
+
+	for (i = 0; aliases[i]; i++) {
+		if (uri->scheme == aliases[i])
+			return TRUE;
+	}
+
+	return FALSE;
 }
 
 G_DEFINE_BOXED_TYPE (SoupURI, soup_uri, soup_uri_copy, soup_uri_free)

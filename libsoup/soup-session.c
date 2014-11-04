@@ -16,11 +16,10 @@
 #include "soup-auth-manager.h"
 #include "soup-cache-private.h"
 #include "soup-connection.h"
-#include "soup-marshal.h"
 #include "soup-message-private.h"
 #include "soup-misc-private.h"
 #include "soup-message-queue.h"
-#include "soup-proxy-resolver-static.h"
+#include "soup-proxy-resolver-wrapper.h"
 #include "soup-session-private.h"
 
 #define HOST_KEEP_ALIVE 5 * 60 * 1000 /* 5 min in msecs */
@@ -89,6 +88,7 @@ typedef struct {
 	GTlsDatabase *tlsdb;
 	char *ssl_ca_file;
 	gboolean ssl_strict;
+	gboolean tlsdb_use_default;
 
 	SoupMessageQueue *queue;
 
@@ -122,7 +122,9 @@ typedef struct {
 	GSList *run_queue_sources;
 
 	GResolver *resolver;
-	GProxyResolver *g_proxy_resolver;
+	GProxyResolver *proxy_resolver;
+	gboolean proxy_use_default;
+	SoupURI *proxy_uri;
 
 	char **http_aliases, **https_aliases;
 
@@ -268,9 +270,6 @@ soup_session_constructor (GType                  type,
 		SoupSession *session = SOUP_SESSION (object);
 		SoupSessionPrivate *priv = SOUP_SESSION_GET_PRIVATE (session);
 
-		g_clear_object (&priv->tlsdb);
-		priv->tlsdb = g_tls_backend_get_default_database (g_tls_backend_get_default ());
-
 		g_clear_pointer (&priv->async_context, g_main_context_unref);
 		priv->async_context = g_main_context_ref_thread_default ();
 		priv->use_thread_context = TRUE;
@@ -279,8 +278,14 @@ soup_session_constructor (GType                  type,
 
 		priv->http_aliases[0] = NULL;
 
+		/* If the user overrides the proxy or tlsdb during construction,
+		 * we don't want to needlessly resolve the extension point. So
+		 * we just set flags saying to do it later.
+		 */
+		priv->proxy_use_default = TRUE;
+		priv->tlsdb_use_default = TRUE;
+
 		soup_session_add_feature_by_type (session, SOUP_TYPE_CONTENT_DECODER);
-		soup_session_add_feature_by_type (session, SOUP_TYPE_PROXY_RESOLVER_DEFAULT);
 	}
 
 	return object;
@@ -337,7 +342,8 @@ soup_session_finalize (GObject *object)
 	g_hash_table_destroy (priv->features_cache);
 
 	g_object_unref (priv->resolver);
-	g_clear_object (&priv->g_proxy_resolver);
+	g_clear_object (&priv->proxy_resolver);
+	g_clear_pointer (&priv->proxy_uri, soup_uri_free);
 
 	g_free (priv->http_aliases);
 	g_free (priv->https_aliases);
@@ -433,16 +439,19 @@ set_tlsdb (SoupSession *session, GTlsDatabase *tlsdb)
 	SoupSessionPrivate *priv = SOUP_SESSION_GET_PRIVATE (session);
 	GTlsDatabase *system_default;
 
+	priv->tlsdb_use_default = FALSE;
 	if (tlsdb == priv->tlsdb)
 		return;
 
 	g_object_freeze_notify (G_OBJECT (session));
 
 	system_default = g_tls_backend_get_default_database (g_tls_backend_get_default ());
-	if (priv->tlsdb == system_default || tlsdb == system_default) {
-		g_object_notify (G_OBJECT (session), "ssl-use-system-ca-file");
+	if (system_default) {
+		if (priv->tlsdb == system_default || tlsdb == system_default) {
+			g_object_notify (G_OBJECT (session), "ssl-use-system-ca-file");
+		}
+		g_object_unref (system_default);
 	}
-	g_object_unref (system_default);
 
 	if (priv->ssl_ca_file) {
 		g_free (priv->ssl_ca_file);
@@ -466,6 +475,8 @@ set_use_system_ca_file (SoupSession *session, gboolean use_system_ca_file)
 	SoupSessionPrivate *priv = SOUP_SESSION_GET_PRIVATE (session);
 	GTlsDatabase *system_default;
 
+	priv->tlsdb_use_default = FALSE;
+
 	system_default = g_tls_backend_get_default_database (g_tls_backend_get_default ());
 
 	if (use_system_ca_file)
@@ -473,7 +484,7 @@ set_use_system_ca_file (SoupSession *session, gboolean use_system_ca_file)
 	else if (priv->tlsdb == system_default)
 		set_tlsdb (session, NULL);
 
-	g_object_unref (system_default);
+	g_clear_object (&system_default);
 }
 
 static void
@@ -483,6 +494,7 @@ set_ssl_ca_file (SoupSession *session, const char *ssl_ca_file)
 	GTlsDatabase *tlsdb;
 	GError *error = NULL;
 
+	priv->tlsdb_use_default = FALSE;
 	if (!g_strcmp0 (priv->ssl_ca_file, ssl_ca_file))
 		return;
 
@@ -497,6 +509,7 @@ set_ssl_ca_file (SoupSession *session, const char *ssl_ca_file)
 		path = g_build_filename (cwd, ssl_ca_file, NULL);
 		tlsdb = g_tls_file_database_new (path, &error);
 		g_free (path);
+		g_free (cwd);
 	}
 
 	if (error) {
@@ -510,11 +523,15 @@ set_ssl_ca_file (SoupSession *session, const char *ssl_ca_file)
 	}
 
 	set_tlsdb (session, tlsdb);
-	if (tlsdb)
+	if (tlsdb) {
 		g_object_unref (tlsdb);
 
-	priv->ssl_ca_file = g_strdup (ssl_ca_file);
-	g_object_notify (G_OBJECT (session), "ssl-ca-file");
+		priv->ssl_ca_file = g_strdup (ssl_ca_file);
+		g_object_notify (G_OBJECT (session), "ssl-ca-file");
+	} else if (priv->ssl_ca_file) {
+		g_clear_pointer (&priv->ssl_ca_file, g_free);
+		g_object_notify (G_OBJECT (session), "ssl-ca-file");
+	}
 
 	g_object_thaw_notify (G_OBJECT (session));
 }
@@ -543,12 +560,43 @@ set_aliases (char ***variable, char **value)
 }
 
 static void
+set_proxy_resolver (SoupSession *session, SoupURI *uri,
+		    SoupProxyURIResolver *soup_resolver,
+		    GProxyResolver *g_resolver)
+{
+	SoupSessionPrivate *priv = SOUP_SESSION_GET_PRIVATE (session);
+
+	G_GNUC_BEGIN_IGNORE_DEPRECATIONS;
+	soup_session_remove_feature_by_type (session, SOUP_TYPE_PROXY_URI_RESOLVER);
+	G_GNUC_END_IGNORE_DEPRECATIONS;
+	g_clear_object (&priv->proxy_resolver);
+	g_clear_pointer (&priv->proxy_uri, soup_uri_free);
+	priv->proxy_use_default = FALSE;
+
+	if (uri) {
+		char *uri_string;
+
+		priv->proxy_uri = soup_uri_copy (uri);
+		uri_string = soup_uri_to_string_internal (uri, FALSE, TRUE);
+		priv->proxy_resolver = g_simple_proxy_resolver_new (uri_string, NULL);
+		g_free (uri_string);
+	} else if (soup_resolver) {
+		G_GNUC_BEGIN_IGNORE_DEPRECATIONS;
+		if (SOUP_IS_PROXY_RESOLVER_DEFAULT (soup_resolver))
+			priv->proxy_resolver = g_object_ref (g_proxy_resolver_get_default ());
+		else
+			priv->proxy_resolver = soup_proxy_resolver_wrapper_new (soup_resolver);
+		G_GNUC_END_IGNORE_DEPRECATIONS;
+	} else if (g_resolver)
+		priv->proxy_resolver = g_object_ref (g_resolver);
+}
+
+static void
 soup_session_set_property (GObject *object, guint prop_id,
 			   const GValue *value, GParamSpec *pspec)
 {
 	SoupSession *session = SOUP_SESSION (object);
 	SoupSessionPrivate *priv = SOUP_SESSION_GET_PRIVATE (session);
-	SoupURI *uri;
 	const char *user_agent;
 	SoupSessionFeature *feature;
 	GMainContext *async_context;
@@ -558,26 +606,13 @@ soup_session_set_property (GObject *object, guint prop_id,
 		priv->local_addr = g_value_dup_object (value);
 		break;
 	case PROP_PROXY_URI:
-		uri = g_value_get_boxed (value);
-		if (uri) {
-			G_GNUC_BEGIN_IGNORE_DEPRECATIONS;
-			soup_session_remove_feature_by_type (session, SOUP_TYPE_PROXY_RESOLVER);
-			G_GNUC_END_IGNORE_DEPRECATIONS;
-			feature = SOUP_SESSION_FEATURE (soup_proxy_resolver_static_new (uri));
-			soup_session_add_feature (session, feature);
-			g_object_unref (feature);
-		} else
-			soup_session_remove_feature_by_type (session, SOUP_TYPE_PROXY_RESOLVER_STATIC);
-		g_clear_object (&priv->g_proxy_resolver);
+		set_proxy_resolver (session, g_value_get_boxed (value),
+				    NULL, NULL);
 		soup_session_abort (session);
 		break;
 	case PROP_PROXY_RESOLVER:
-		G_GNUC_BEGIN_IGNORE_DEPRECATIONS;
-		soup_session_remove_feature_by_type (session, SOUP_TYPE_PROXY_RESOLVER);
-		G_GNUC_END_IGNORE_DEPRECATIONS;
-		if (priv->g_proxy_resolver)
-			g_object_unref (priv->g_proxy_resolver);
-		priv->g_proxy_resolver = g_value_dup_object (value);
+		set_proxy_resolver (session, NULL, NULL,
+				    g_value_get_object (value));
 		break;
 	case PROP_MAX_CONNS:
 		priv->max_conns = g_value_get_int (value);
@@ -686,6 +721,30 @@ soup_session_set_property (GObject *object, guint prop_id,
 	}
 }
 
+static GProxyResolver *
+get_proxy_resolver (SoupSession *session)
+{
+	SoupSessionPrivate *priv = SOUP_SESSION_GET_PRIVATE (session);
+
+	if (priv->proxy_use_default) {
+		priv->proxy_resolver = g_object_ref (g_proxy_resolver_get_default ());
+		priv->proxy_use_default = FALSE;
+	}
+	return priv->proxy_resolver;
+}
+
+static GTlsDatabase *
+get_tls_database (SoupSession *session)
+{
+	SoupSessionPrivate *priv = SOUP_SESSION_GET_PRIVATE (session);
+
+	if (priv->tlsdb_use_default) {
+		priv->tlsdb = g_tls_backend_get_default_database (g_tls_backend_get_default ());
+		priv->tlsdb_use_default = FALSE;
+	}
+	return priv->tlsdb;
+}
+
 static void
 soup_session_get_property (GObject *object, guint prop_id,
 			   GValue *value, GParamSpec *pspec)
@@ -700,16 +759,10 @@ soup_session_get_property (GObject *object, guint prop_id,
 		g_value_set_object (value, priv->local_addr);
 		break;
 	case PROP_PROXY_URI:
-		feature = soup_session_get_feature (session, SOUP_TYPE_PROXY_RESOLVER_STATIC);
-		if (feature) {
-			g_object_get_property (G_OBJECT (feature),
-					       SOUP_PROXY_RESOLVER_STATIC_PROXY_URI,
-					       value);
-		} else
-			g_value_set_boxed (value, NULL);
+		g_value_set_boxed (value, priv->proxy_uri);
 		break;
 	case PROP_PROXY_RESOLVER:
-		g_value_set_object (value, priv->g_proxy_resolver);
+		g_value_set_object (value, get_proxy_resolver (session));
 		break;
 	case PROP_MAX_CONNS:
 		g_value_set_int (value, priv->max_conns);
@@ -729,11 +782,11 @@ soup_session_get_property (GObject *object, guint prop_id,
 		break;
 	case PROP_SSL_USE_SYSTEM_CA_FILE:
 		tlsdb = g_tls_backend_get_default_database (g_tls_backend_get_default ());
-		g_value_set_boolean (value, priv->tlsdb == tlsdb);
-		g_object_unref (tlsdb);
+		g_value_set_boolean (value, get_tls_database (session) == tlsdb);
+		g_clear_object (&tlsdb);
 		break;
 	case PROP_TLS_DATABASE:
-		g_value_set_object (value, priv->tlsdb);
+		g_value_set_object (value, get_tls_database (session));
 		break;
 	case PROP_SSL_STRICT:
 		g_value_set_boolean (value, priv->ssl_strict);
@@ -812,49 +865,6 @@ soup_session_new_with_options (const char *optname1,
 	return session;
 }
 
-static gboolean
-uri_is_http (SoupSessionPrivate *priv, SoupURI *uri)
-{
-	int i;
-
-	if (uri->scheme == SOUP_URI_SCHEME_HTTP)
-		return TRUE;
-	else if (uri->scheme == SOUP_URI_SCHEME_HTTPS)
-		return FALSE;
-	else if (!priv->http_aliases)
-		return FALSE;
-
-	for (i = 0; priv->http_aliases[i]; i++) {
-		if (uri->scheme == priv->http_aliases[i])
-			return TRUE;
-	}
-
-	if (!priv->http_aliases[1] && !strcmp (priv->http_aliases[0], "*"))
-		return TRUE;
-	else
-		return FALSE;
-}
-
-static gboolean
-uri_is_https (SoupSessionPrivate *priv, SoupURI *uri)
-{
-	int i;
-
-	if (uri->scheme == SOUP_URI_SCHEME_HTTPS)
-		return TRUE;
-	else if (uri->scheme == SOUP_URI_SCHEME_HTTP)
-		return FALSE;
-	else if (!priv->https_aliases)
-		return FALSE;
-
-	for (i = 0; priv->https_aliases[i]; i++) {
-		if (uri->scheme == priv->https_aliases[i])
-			return TRUE;
-	}
-
-	return FALSE;
-}
-
 /**
  * soup_session_get_async_context:
  * @session: a #SoupSession
@@ -926,7 +936,7 @@ soup_session_host_new (SoupSession *session, SoupURI *uri)
 	    host->uri->scheme != SOUP_URI_SCHEME_HTTPS) {
 		SoupSessionPrivate *priv = SOUP_SESSION_GET_PRIVATE (session);
 
-		if (uri_is_https (priv, host->uri))
+		if (soup_uri_is_https (host->uri, priv->https_aliases))
 			host->uri->scheme = SOUP_URI_SCHEME_HTTPS;
 		else
 			host->uri->scheme = SOUP_URI_SCHEME_HTTP;
@@ -950,7 +960,7 @@ get_host_for_uri (SoupSession *session, SoupURI *uri)
 	SoupSessionPrivate *priv = SOUP_SESSION_GET_PRIVATE (session);
 	SoupSessionHost *host;
 
-	if (uri_is_https (priv, uri))
+	if (soup_uri_is_https (uri, priv->https_aliases))
 		host = g_hash_table_lookup (priv->https_hosts, uri);
 	else
 		host = g_hash_table_lookup (priv->http_hosts, uri);
@@ -959,7 +969,7 @@ get_host_for_uri (SoupSession *session, SoupURI *uri)
 
 	host = soup_session_host_new (session, uri);
 
-	if (uri_is_https (priv, uri))
+	if (soup_uri_is_https (uri, priv->https_aliases))
 		g_hash_table_insert (priv->https_hosts, host->uri, host);
 	else
 		g_hash_table_insert (priv->http_hosts, host->uri, host);
@@ -1061,7 +1071,8 @@ soup_session_would_redirect (SoupSession *session, SoupMessage *msg)
 	if (!new_uri)
 		return FALSE;
 	if (!new_uri->host || !*new_uri->host ||
-	    (!uri_is_http (priv, new_uri) && !uri_is_https (priv, new_uri))) {
+	    (!soup_uri_is_http (new_uri, priv->http_aliases) &&
+	     !soup_uri_is_https (new_uri, priv->https_aliases))) {
 		soup_uri_free (new_uri);
 		return FALSE;
 	}
@@ -1443,7 +1454,8 @@ soup_session_unqueue_item (SoupSession          *session,
 static void
 soup_session_set_item_status (SoupSession          *session,
 			      SoupMessageQueueItem *item,
-			      guint                 status_code)
+			      guint                 status_code,
+			      GError               *error)
 {
 	SoupURI *uri = NULL;
 
@@ -1471,7 +1483,9 @@ soup_session_set_item_status (SoupSession          *session,
 		break;
 	}
 
-	if (uri && uri->host) {
+	if (error)
+		soup_message_set_status_full (item->msg, status_code, error->message);
+	else if (uri && uri->host) {
 		char *msg = g_strdup_printf ("%s (%s)",
 					     soup_status_get_phrase (status_code),
 					     uri->host);
@@ -1498,10 +1512,57 @@ message_completed (SoupMessage *msg, gpointer user_data)
 	}
 }
 
-static void
-tunnel_complete (SoupConnection *conn, guint status, gpointer user_data)
+static guint
+status_from_connect_error (SoupMessageQueueItem *item, GError *error)
 {
-	SoupMessageQueueItem *tunnel_item = user_data;
+	guint status;
+
+	if (!error)
+		return SOUP_STATUS_OK;
+
+	if (g_error_matches (error, G_TLS_ERROR, G_TLS_ERROR_NOT_TLS)) {
+		SoupSessionPrivate *priv = SOUP_SESSION_GET_PRIVATE (item->session);
+		SoupSessionHost *host;
+
+		g_mutex_lock (&priv->conn_lock);
+		host = get_host_for_message (item->session, item->msg);
+		if (!host->ssl_fallback) {
+			host->ssl_fallback = TRUE;
+			status = SOUP_STATUS_TRY_AGAIN;
+		} else
+			status = SOUP_STATUS_SSL_FAILED;
+		g_mutex_unlock (&priv->conn_lock);
+	} else if (error->domain == G_TLS_ERROR)
+		status = SOUP_STATUS_SSL_FAILED;
+	else if (error->domain == G_RESOLVER_ERROR)
+		status = SOUP_STATUS_CANT_RESOLVE;
+	else if (error->domain == G_IO_ERROR) {
+		if (error->code == G_IO_ERROR_CANCELLED)
+			status = SOUP_STATUS_CANCELLED;
+		else if (error->code == G_IO_ERROR_HOST_UNREACHABLE ||
+			 error->code == G_IO_ERROR_NETWORK_UNREACHABLE ||
+			 error->code == G_IO_ERROR_CONNECTION_REFUSED)
+			status = SOUP_STATUS_CANT_CONNECT;
+		else if (error->code == G_IO_ERROR_PROXY_FAILED ||
+			 error->code == G_IO_ERROR_PROXY_AUTH_FAILED ||
+			 error->code == G_IO_ERROR_PROXY_NEED_AUTH ||
+			 error->code == G_IO_ERROR_PROXY_NOT_ALLOWED)
+			status = SOUP_STATUS_CANT_CONNECT_PROXY;
+		else
+			status = SOUP_STATUS_IO_ERROR;
+	} else
+		status = SOUP_STATUS_IO_ERROR;
+
+	if (item->conn && soup_connection_is_via_proxy (item->conn))
+		return soup_status_proxify (status);
+	else
+		return status;
+}
+
+static void
+tunnel_complete (SoupMessageQueueItem *tunnel_item,
+		 guint status, GError *error)
+{
 	SoupMessageQueueItem *item = tunnel_item->related;
 	SoupSession *session = tunnel_item->session;
 
@@ -1512,16 +1573,33 @@ tunnel_complete (SoupConnection *conn, guint status, gpointer user_data)
 		item->state = SOUP_MESSAGE_FINISHING;
 	soup_message_set_https_status (item->msg, item->conn);
 
+	item->error = error;
+	if (!status)
+		status = status_from_connect_error (item, error);
 	if (!SOUP_STATUS_IS_SUCCESSFUL (status)) {
-		soup_connection_disconnect (conn);
+		soup_connection_disconnect (item->conn);
 		soup_session_set_item_connection (session, item, NULL);
-		soup_session_set_item_status (session, item, status);
+		if (!item->new_api || item->msg->status_code == 0)
+			soup_session_set_item_status (session, item, status, error);
 	}
 
 	item->state = SOUP_MESSAGE_READY;
 	if (item->async)
 		soup_session_kick_queue (session);
 	soup_message_queue_item_unref (item);
+}
+
+static void
+tunnel_handshake_complete (GObject      *object,
+			   GAsyncResult *result,
+			   gpointer      user_data)
+{
+	SoupConnection *conn = SOUP_CONNECTION (object);
+	SoupMessageQueueItem *tunnel_item = user_data;
+	GError *error = NULL;
+
+	soup_connection_start_ssl_finish (conn, result, &error);
+	tunnel_complete (tunnel_item, 0, error);
 }
 
 static void
@@ -1549,16 +1627,19 @@ tunnel_message_completed (SoupMessage *msg, gpointer user_data)
 
 	status = tunnel_item->msg->status_code;
 	if (!SOUP_STATUS_IS_SUCCESSFUL (status)) {
-		tunnel_complete (item->conn, status, tunnel_item);
+		tunnel_complete (tunnel_item, status, NULL);
 		return;
 	}
 
 	if (tunnel_item->async) {
 		soup_connection_start_ssl_async (item->conn, item->cancellable,
-						 tunnel_complete, tunnel_item);
+						 tunnel_handshake_complete,
+						 tunnel_item);
 	} else {
-		status = soup_connection_start_ssl_sync (item->conn, item->cancellable);
-		tunnel_complete (item->conn, status, tunnel_item);
+		GError *error = NULL;
+
+		soup_connection_start_ssl_sync (item->conn, item->cancellable, &error);
+		tunnel_complete (tunnel_item, 0, error);
 	}
 }
 
@@ -1592,32 +1673,48 @@ tunnel_connect (SoupMessageQueueItem *item)
 }
 
 static void
-got_connection (SoupConnection *conn, guint status, gpointer user_data)
+connect_complete (SoupMessageQueueItem *item, SoupConnection *conn, GError *error)
 {
-	SoupMessageQueueItem *item = user_data;
 	SoupSession *session = item->session;
+	guint status;
 
 	soup_message_set_https_status (item->msg, item->conn);
 
-	if (status != SOUP_STATUS_OK) {
-		soup_connection_disconnect (conn);
-		if (item->state == SOUP_MESSAGE_CONNECTING) {
-			soup_session_set_item_status (session, item, status);
-			soup_session_set_item_connection (session, item, NULL);
-			item->state = SOUP_MESSAGE_READY;
-		}
-	} else
+	if (!error) {
 		item->state = SOUP_MESSAGE_CONNECTED;
-
-	if (item->async) {
-		if (item->state == SOUP_MESSAGE_CONNECTED ||
-		    item->state == SOUP_MESSAGE_READY)
-			async_run_queue (item->session);
-		else
-			soup_session_kick_queue (item->session);
-
-		soup_message_queue_item_unref (item);
+		return;
 	}
+
+	item->error = error;
+	status = status_from_connect_error (item, error);
+	soup_connection_disconnect (conn);
+	if (item->state == SOUP_MESSAGE_CONNECTING) {
+		if (!item->new_api || item->msg->status_code == 0)
+			soup_session_set_item_status (session, item, status, error);
+		soup_session_set_item_connection (session, item, NULL);
+		item->state = SOUP_MESSAGE_READY;
+	}
+}
+
+static void
+connect_async_complete (GObject      *object,
+			GAsyncResult *result,
+			gpointer      user_data)
+{
+	SoupConnection *conn = SOUP_CONNECTION (object);
+	SoupMessageQueueItem *item = user_data;
+	GError *error = NULL;
+
+	soup_connection_connect_finish (conn, result, &error);
+	connect_complete (item, conn, error);
+
+	if (item->state == SOUP_MESSAGE_CONNECTED ||
+	    item->state == SOUP_MESSAGE_READY)
+		async_run_queue (item->session);
+	else
+		soup_session_kick_queue (item->session);
+
+	soup_message_queue_item_unref (item);
 }
 
 /* requires conn_lock */
@@ -1632,6 +1729,8 @@ get_connection_for_host (SoupSession *session,
 	SoupConnection *conn;
 	GSList *conns;
 	int num_pending = 0;
+	GProxyResolver *proxy_resolver;
+	GTlsDatabase *tlsdb;
 
 	if (priv->disposed)
 		return FALSE;
@@ -1668,14 +1767,16 @@ get_connection_for_host (SoupSession *session,
 		return NULL;
 	}
 
+	proxy_resolver = get_proxy_resolver (session);
+	tlsdb = get_tls_database (session);
+
 	conn = g_object_new (
 		SOUP_TYPE_CONNECTION,
 		SOUP_CONNECTION_REMOTE_URI, host->uri,
-		SOUP_CONNECTION_SOUP_PROXY_RESOLVER, soup_session_get_feature (session, SOUP_TYPE_PROXY_URI_RESOLVER),
-		SOUP_CONNECTION_G_PROXY_RESOLVER, priv->g_proxy_resolver,
-		SOUP_CONNECTION_SSL, uri_is_https (priv, soup_message_get_uri (item->msg)),
-		SOUP_CONNECTION_SSL_CREDENTIALS, priv->tlsdb,
-		SOUP_CONNECTION_SSL_STRICT, priv->ssl_strict && (priv->tlsdb != NULL || SOUP_IS_PLAIN_SESSION (session)),
+		SOUP_CONNECTION_PROXY_RESOLVER, proxy_resolver,
+		SOUP_CONNECTION_SSL, soup_uri_is_https (soup_message_get_uri (item->msg), priv->https_aliases),
+		SOUP_CONNECTION_SSL_CREDENTIALS, tlsdb,
+		SOUP_CONNECTION_SSL_STRICT, priv->ssl_strict && (tlsdb != NULL || SOUP_IS_PLAIN_SESSION (session)),
 		SOUP_CONNECTION_ASYNC_CONTEXT, priv->async_context,
 		SOUP_CONNECTION_USE_THREAD_CONTEXT, priv->use_thread_context,
 		SOUP_CONNECTION_TIMEOUT, priv->io_timeout,
@@ -1720,6 +1821,8 @@ get_connection (SoupMessageQueueItem *item, gboolean *should_cleanup)
 	SoupConnection *conn = NULL;
 	gboolean my_should_cleanup = FALSE;
 	gboolean need_new_connection;
+
+	soup_session_cleanup_connections (session, FALSE);
 
 	need_new_connection =
 		(soup_message_get_flags (item->msg) & SOUP_MESSAGE_NEW_CONNECTION) ||
@@ -1767,13 +1870,13 @@ get_connection (SoupMessageQueueItem *item, gboolean *should_cleanup)
 	if (item->async) {
 		soup_message_queue_item_ref (item);
 		soup_connection_connect_async (item->conn, item->cancellable,
-					       got_connection, item);
+					       connect_async_complete, item);
 		return FALSE;
 	} else {
-		guint status;
+		GError *error = NULL;
 
-		status = soup_connection_connect_sync (item->conn, item->cancellable);
-		got_connection (item->conn, status, item);
+		soup_connection_connect_sync (item->conn, item->cancellable, &error);
+		connect_complete (item, conn, error);
 
 		return TRUE;
 	}
@@ -2089,6 +2192,9 @@ soup_session_send_message (SoupSession *session, SoupMessage *msg)
  *
  * Pauses HTTP I/O on @msg. Call soup_session_unpause_message() to
  * resume I/O.
+ *
+ * This may only be called for asynchronous messages (those sent on a
+ * #SoupSessionAsync or using soup_session_queue_message()).
  **/
 void
 soup_session_pause_message (SoupSession *session,
@@ -2103,6 +2209,7 @@ soup_session_pause_message (SoupSession *session,
 	priv = SOUP_SESSION_GET_PRIVATE (session);
 	item = soup_message_queue_lookup (priv->queue, msg);
 	g_return_if_fail (item != NULL);
+	g_return_if_fail (item->async);
 
 	item->paused = TRUE;
 	if (item->state == SOUP_MESSAGE_RUNNING)
@@ -2142,8 +2249,11 @@ soup_session_real_kick_queue (SoupSession *session)
 			have_sync_items = TRUE;
 	}
 
-	if (have_sync_items)
+	if (have_sync_items) {
+		g_mutex_lock (&priv->conn_lock);
 		g_cond_broadcast (&priv->conn_cond);
+		g_mutex_unlock (&priv->conn_lock);
+	}
 }
 
 void
@@ -2163,6 +2273,9 @@ soup_session_kick_queue (SoupSession *session)
  * If @msg is being sent via blocking I/O, this will resume reading or
  * writing immediately. If @msg is using non-blocking I/O, then
  * reading or writing won't resume until you return to the main loop.
+ *
+ * This may only be called for asynchronous messages (those sent on a
+ * #SoupSessionAsync or using soup_session_queue_message()).
  **/
 void
 soup_session_unpause_message (SoupSession *session,
@@ -2177,6 +2290,7 @@ soup_session_unpause_message (SoupSession *session,
 	priv = SOUP_SESSION_GET_PRIVATE (session);
 	item = soup_message_queue_lookup (priv->queue, msg);
 	g_return_if_fail (item != NULL);
+	g_return_if_fail (item->async);
 
 	item->paused = FALSE;
 	if (item->state == SOUP_MESSAGE_RUNNING)
@@ -2453,9 +2567,8 @@ soup_session_prefetch_dns (SoupSession *session, const char *hostname,
  * feature to the session at construct time by using the
  * %SOUP_SESSION_ADD_FEATURE property.
  *
- * Note that a #SoupProxyResolverDefault and a #SoupContentDecoder are
- * added to the session by default (unless you are using one of the
- * deprecated session subclasses).
+ * Note that a #SoupContentDecoder is added to the session by default
+ * (unless you are using one of the deprecated session subclasses).
  *
  * Since: 2.24
  **/
@@ -2469,8 +2582,13 @@ soup_session_add_feature (SoupSession *session, SoupSessionFeature *feature)
 
 	priv = SOUP_SESSION_GET_PRIVATE (session);
 
-	if (SOUP_IS_PROXY_URI_RESOLVER (feature))
-		g_clear_object (&priv->g_proxy_resolver);
+	G_GNUC_BEGIN_IGNORE_DEPRECATIONS;
+	if (SOUP_IS_PROXY_URI_RESOLVER (feature)) {
+		set_proxy_resolver (session, NULL,
+				    SOUP_PROXY_URI_RESOLVER (feature),
+				    NULL);
+	}
+	G_GNUC_END_IGNORE_DEPRECATIONS;
 
 	priv->features = g_slist_prepend (priv->features, g_object_ref (feature));
 	g_hash_table_remove_all (priv->features_cache);
@@ -2495,9 +2613,8 @@ soup_session_add_feature (SoupSession *session, SoupSessionFeature *feature)
  * You can also add a feature to the session at construct time by
  * using the %SOUP_SESSION_ADD_FEATURE_BY_TYPE property.
  *
- * Note that a #SoupProxyResolverDefault and a #SoupContentDecoder are
- * added to the session by default (unless you are using one of the
- * deprecated session subclasses).
+ * Note that a #SoupContentDecoder is added to the session by default
+ * (unless you are using one of the deprecated session subclasses).
  *
  * Since: 2.24
  **/
@@ -2558,6 +2675,15 @@ soup_session_remove_feature (SoupSession *session, SoupSessionFeature *feature)
 		priv->features = g_slist_remove (priv->features, feature);
 		g_hash_table_remove_all (priv->features_cache);
 		soup_session_feature_detach (feature, session);
+
+		G_GNUC_BEGIN_IGNORE_DEPRECATIONS;
+		if (SOUP_IS_PROXY_URI_RESOLVER (feature)) {
+			if (SOUP_IS_PROXY_RESOLVER_WRAPPER (priv->proxy_resolver) &&
+			    SOUP_PROXY_RESOLVER_WRAPPER (priv->proxy_resolver)->soup_resolver == SOUP_PROXY_URI_RESOLVER (feature))
+				g_clear_object (&priv->proxy_resolver);
+		}
+		G_GNUC_END_IGNORE_DEPRECATIONS;
+
 		g_object_unref (feature);
 	}
 }
@@ -2592,6 +2718,10 @@ soup_session_remove_feature_by_type (SoupSession *session, GType feature_type)
 				goto restart;
 			}
 		}
+		G_GNUC_BEGIN_IGNORE_DEPRECATIONS;
+		if (g_type_is_a (feature_type, SOUP_TYPE_PROXY_URI_RESOLVER))
+			priv->proxy_use_default = FALSE;
+		G_GNUC_BEGIN_IGNORE_DEPRECATIONS;
 	} else if (g_type_is_a (feature_type, SOUP_TYPE_REQUEST)) {
 		SoupRequestClass *request_class;
 		int i;
@@ -2831,7 +2961,7 @@ soup_session_class_init (SoupSessionClass *session_class)
 			      G_SIGNAL_RUN_FIRST,
 			      0, /* FIXME? */
 			      NULL, NULL,
-			      _soup_marshal_NONE__OBJECT,
+			      NULL,
 			      G_TYPE_NONE, 1,
 			      SOUP_TYPE_MESSAGE);
 
@@ -2851,7 +2981,7 @@ soup_session_class_init (SoupSessionClass *session_class)
 			      G_SIGNAL_RUN_FIRST,
 			      G_STRUCT_OFFSET (SoupSessionClass, request_started),
 			      NULL, NULL,
-			      _soup_marshal_NONE__OBJECT_OBJECT,
+			      NULL,
 			      G_TYPE_NONE, 2,
 			      SOUP_TYPE_MESSAGE,
 			      SOUP_TYPE_SOCKET);
@@ -2874,7 +3004,7 @@ soup_session_class_init (SoupSessionClass *session_class)
 			      G_SIGNAL_RUN_FIRST,
 			      0, /* FIXME? */
 			      NULL, NULL,
-			      _soup_marshal_NONE__OBJECT,
+			      NULL,
 			      G_TYPE_NONE, 1,
 			      SOUP_TYPE_MESSAGE);
 
@@ -2907,7 +3037,7 @@ soup_session_class_init (SoupSessionClass *session_class)
 			      G_SIGNAL_RUN_FIRST,
 			      G_STRUCT_OFFSET (SoupSessionClass, authenticate),
 			      NULL, NULL,
-			      _soup_marshal_NONE__OBJECT_OBJECT_BOOLEAN,
+			      NULL,
 			      G_TYPE_NONE, 3,
 			      SOUP_TYPE_MESSAGE,
 			      SOUP_TYPE_AUTH,
@@ -2930,7 +3060,7 @@ soup_session_class_init (SoupSessionClass *session_class)
 			      G_SIGNAL_RUN_FIRST,
 			      0,
 			      NULL, NULL,
-			      _soup_marshal_NONE__OBJECT,
+			      NULL,
 			      G_TYPE_NONE, 1,
 			      /* SoupConnection is private, so we can't use
 			       * SOUP_TYPE_CONNECTION here.
@@ -2954,7 +3084,7 @@ soup_session_class_init (SoupSessionClass *session_class)
 			      G_SIGNAL_RUN_FIRST,
 			      0,
 			      NULL, NULL,
-			      _soup_marshal_NONE__OBJECT,
+			      NULL,
 			      G_TYPE_NONE, 1,
 			      /* SoupConnection is private, so we can't use
 			       * SOUP_TYPE_CONNECTION here.
@@ -2966,16 +3096,23 @@ soup_session_class_init (SoupSessionClass *session_class)
 	/**
 	 * SoupSession:proxy-uri:
 	 *
-	 * An http proxy to use for all http and https requests in
-	 * this session. Setting this will remove any
-	 * #SoupProxyURIResolver features that have been added to the
-	 * session. Setting this property will also cancel all
-	 * currently pending messages.
+	 * A proxy to use for all http and https requests in this
+	 * session. Setting this will clear the
+	 * #SoupSession:proxy-resolver property, and remove any
+	 * <type>SoupProxyURIResolver</type> features that have been
+	 * added to the session. Setting this property will also
+	 * cancel all currently pending messages.
 	 *
-	 * Note that #SoupProxyResolverDefault will handle looking up
-	 * the user's proxy settings for you; you should only use
+	 * Note that #SoupSession will normally handle looking up the
+	 * user's proxy settings for you; you should only use
 	 * #SoupSession:proxy-uri if you need to override the user's
 	 * normal proxy settings.
+	 *
+	 * Also note that this proxy will be used for
+	 * <emphasis>all</emphasis> requests; even requests to
+	 * <literal>localhost</literal>. If you need more control over
+	 * proxies, you can create a #GSimpleProxyResolver and set the
+	 * #SoupSession:proxy-resolver property.
 	 */
 	/**
 	 * SOUP_SESSION_PROXY_URI:
@@ -2994,15 +3131,14 @@ soup_session_class_init (SoupSessionClass *session_class)
 	 *
 	 * A #GProxyResolver to use with this session. Setting this
 	 * will clear the #SoupSession:proxy-uri property, and remove
-	 * any #SoupProxyURIResolver features that have been added to
-	 * the session.
+	 * any <type>SoupProxyURIResolver</type> features that have
+	 * been added to the session.
 	 *
-	 * You only need to set this if you want to manually control
-	 * proxy resolution (and need to do something more complicated than
-	 * #SoupSession:proxy-uri allows). If you just want to use the
-	 * system proxy settings, #SoupProxyResolverDefault will do that
-	 * for you, and that is automatically part of the session if you
-	 * are using a plain #SoupSession.
+	 * By default, in a plain #SoupSession, this is set to the
+	 * default #GProxyResolver, but you can set it to %NULL if you
+	 * don't want to use proxies, or set it to your own
+	 * #GProxyResolver if you want to control what proxies get
+	 * used.
 	 *
 	 * Since: 2.42
 	 */
@@ -3617,7 +3753,11 @@ async_send_request_return_result (SoupMessageQueueItem *item,
 
 	if (error)
 		g_task_return_error (task, error);
-	else if (SOUP_STATUS_IS_TRANSPORT_ERROR (item->msg->status_code)) {
+	else if (item->error) {
+		if (stream)
+			g_object_unref (stream);
+		g_task_return_error (task, g_error_copy (item->error));
+	} else if (SOUP_STATUS_IS_TRANSPORT_ERROR (item->msg->status_code)) {
 		if (stream)
 			g_object_unref (stream);
 		g_task_return_new_error (task, SOUP_HTTP_ERROR,
@@ -3728,10 +3868,10 @@ send_async_maybe_complete (SoupMessageQueueItem *item,
 
 		/* Give the splice op its own ref on item */
 		soup_message_queue_item_ref (item);
+		/* We don't use CLOSE_SOURCE because we need to control when the
+		 * side effects of closing the SoupClientInputStream happen.
+		 */
 		g_output_stream_splice_async (ostream, stream,
-					      /* We can't use CLOSE_SOURCE because it
-					       * might get closed in the wrong thread.
-					       */
 					      G_OUTPUT_STREAM_SPLICE_CLOSE_TARGET,
 					      G_PRIORITY_DEFAULT,
 					      item->cancellable,
@@ -3760,7 +3900,7 @@ try_run_until_read (SoupMessageQueueItem *item)
 	GError *error = NULL;
 	GInputStream *stream = NULL;
 
-	if (soup_message_io_run_until_read (item->msg, item->cancellable, &error))
+	if (soup_message_io_run_until_read (item->msg, FALSE, item->cancellable, &error))
 		stream = soup_message_io_get_response_istream (item->msg, &error);
 	if (stream) {
 		send_async_maybe_complete (item, stream);
@@ -4048,8 +4188,8 @@ soup_session_send_async (SoupSession         *session,
  * successful), returns a #GInputStream that can be used to read the
  * response body.
  *
- * Return value: a #GInputStream for reading the response body, or
- *   %NULL on error.
+ * Return value: (transfer full): a #GInputStream for reading the
+ *   response body, or %NULL on error.
  *
  * Since: 2.42
  */
@@ -4113,8 +4253,8 @@ soup_session_send_finish (SoupSession   *session,
  * (Note that this method cannot be called on the deprecated
  * #SoupSessionAsync subclass.)
  *
- * Return value: a #GInputStream for reading the response body, or
- *   %NULL on error.
+ * Return value: (transfer full): a #GInputStream for reading the
+ *   response body, or %NULL on error.
  *
  * Since: 2.42
  */
@@ -4150,7 +4290,7 @@ soup_session_send (SoupSession   *session,
 			break;
 
 		/* Send request, read headers */
-		if (!soup_message_io_run_until_read (msg, item->cancellable, &my_error)) {
+		if (!soup_message_io_run_until_read (msg, TRUE, item->cancellable, &my_error)) {
 			if (g_error_matches (my_error, SOUP_HTTP_ERROR, SOUP_STATUS_TRY_AGAIN)) {
 				item->state = SOUP_MESSAGE_RESTARTING;
 				soup_message_io_finished (item->msg);
@@ -4201,11 +4341,12 @@ soup_session_send (SoupSession   *session,
 
 	if (my_error)
 		g_propagate_error (error, my_error);
-	else if (SOUP_STATUS_IS_TRANSPORT_ERROR (msg->status_code)) {
-		if (stream) {
-			g_object_unref (stream);
-			stream = NULL;
-		}
+	else if (item->error) {
+		g_clear_object (&stream);
+		if (error)
+			*error = g_error_copy (item->error);
+	} else if (SOUP_STATUS_IS_TRANSPORT_ERROR (msg->status_code)) {
+		g_clear_object (&stream);
 		g_set_error_literal (error, SOUP_HTTP_ERROR, msg->status_code,
 				     msg->reason_phrase);
 	} else if (!stream)

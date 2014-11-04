@@ -5,10 +5,11 @@
  * Copyright (C) 2000-2003, Ximian, Inc.
  */
 
+#include <string.h>
+
 #include "soup-message.h"
 #include "soup.h"
 #include "soup-connection.h"
-#include "soup-marshal.h"
 #include "soup-message-private.h"
 
 /**
@@ -53,7 +54,7 @@
  *
  * Represents an HTTP message being sent or received.
  *
- * @status_code will normally be a #SoupKnownStatusCode, eg,
+ * @status_code will normally be a #SoupStatus value, eg,
  * %SOUP_STATUS_OK, though of course it might actually be an unknown
  * status code. @reason_phrase is the actual text returned from the
  * server, which may or may not correspond to the "standard"
@@ -130,8 +131,10 @@ enum {
 	PROP_REASON_PHRASE,
 	PROP_FIRST_PARTY,
 	PROP_REQUEST_BODY,
+	PROP_REQUEST_BODY_DATA,
 	PROP_REQUEST_HEADERS,
 	PROP_RESPONSE_BODY,
+	PROP_RESPONSE_BODY_DATA,
 	PROP_RESPONSE_HEADERS,
 	PROP_TLS_CERTIFICATE,
 	PROP_TLS_ERRORS,
@@ -253,6 +256,7 @@ soup_message_get_property (GObject *object, guint prop_id,
 {
 	SoupMessage *msg = SOUP_MESSAGE (object);
 	SoupMessagePrivate *priv = SOUP_MESSAGE_GET_PRIVATE (msg);
+	SoupBuffer *buf;
 
 	switch (prop_id) {
 	case PROP_METHOD:
@@ -282,11 +286,21 @@ soup_message_get_property (GObject *object, guint prop_id,
 	case PROP_REQUEST_BODY:
 		g_value_set_boxed (value, msg->request_body);
 		break;
+	case PROP_REQUEST_BODY_DATA:
+		buf = soup_message_body_flatten (msg->request_body);
+		g_value_take_boxed (value, soup_buffer_get_as_bytes (buf));
+		soup_buffer_free (buf);
+		break;
 	case PROP_REQUEST_HEADERS:
 		g_value_set_boxed (value, msg->request_headers);
 		break;
 	case PROP_RESPONSE_BODY:
 		g_value_set_boxed (value, msg->response_body);
+		break;
+	case PROP_RESPONSE_BODY_DATA:
+		buf = soup_message_body_flatten (msg->response_body);
+		g_value_take_boxed (value, soup_buffer_get_as_bytes (buf));
+		soup_buffer_free (buf);
 		break;
 	case PROP_RESPONSE_HEADERS:
 		g_value_set_boxed (value, msg->response_headers);
@@ -351,7 +365,7 @@ soup_message_class_init (SoupMessageClass *message_class)
 			      G_SIGNAL_RUN_FIRST,
 			      G_STRUCT_OFFSET (SoupMessageClass, wrote_informational),
 			      NULL, NULL,
-			      _soup_marshal_NONE__NONE,
+			      NULL,
 			      G_TYPE_NONE, 0);
 
 	/**
@@ -369,7 +383,7 @@ soup_message_class_init (SoupMessageClass *message_class)
 			      G_SIGNAL_RUN_FIRST,
 			      G_STRUCT_OFFSET (SoupMessageClass, wrote_headers),
 			      NULL, NULL,
-			      _soup_marshal_NONE__NONE,
+			      NULL,
 			      G_TYPE_NONE, 0);
 
 	/**
@@ -391,7 +405,7 @@ soup_message_class_init (SoupMessageClass *message_class)
 			      G_SIGNAL_RUN_FIRST,
 			      G_STRUCT_OFFSET (SoupMessageClass, wrote_chunk),
 			      NULL, NULL,
-			      _soup_marshal_NONE__NONE,
+			      NULL,
 			      G_TYPE_NONE, 0);
 
 	/**
@@ -414,7 +428,7 @@ soup_message_class_init (SoupMessageClass *message_class)
 			      G_SIGNAL_RUN_FIRST,
 			      0, /* FIXME after next ABI break */
 			      NULL, NULL,
-			      _soup_marshal_NONE__BOXED,
+			      NULL,
 			      G_TYPE_NONE, 1,
 			      SOUP_TYPE_BUFFER);
 
@@ -435,7 +449,7 @@ soup_message_class_init (SoupMessageClass *message_class)
 			      G_SIGNAL_RUN_FIRST,
 			      G_STRUCT_OFFSET (SoupMessageClass, wrote_body),
 			      NULL, NULL,
-			      _soup_marshal_NONE__NONE,
+			      NULL,
 			      G_TYPE_NONE, 0);
 
 	/**
@@ -458,7 +472,7 @@ soup_message_class_init (SoupMessageClass *message_class)
 			      G_SIGNAL_RUN_FIRST,
 			      G_STRUCT_OFFSET (SoupMessageClass, got_informational),
 			      NULL, NULL,
-			      _soup_marshal_NONE__NONE,
+			      NULL,
 			      G_TYPE_NONE, 0);
 
 	/**
@@ -490,7 +504,7 @@ soup_message_class_init (SoupMessageClass *message_class)
 			      G_SIGNAL_RUN_FIRST,
 			      G_STRUCT_OFFSET (SoupMessageClass, got_headers),
 			      NULL, NULL,
-			      _soup_marshal_NONE__NONE,
+			      NULL,
 			      G_TYPE_NONE, 0);
 
 	/**
@@ -513,7 +527,7 @@ soup_message_class_init (SoupMessageClass *message_class)
 			      G_SIGNAL_RUN_FIRST,
 			      G_STRUCT_OFFSET (SoupMessageClass, got_chunk),
 			      NULL, NULL,
-			      _soup_marshal_NONE__BOXED,
+			      NULL,
 			      G_TYPE_NONE, 1,
 			      /* Use %G_SIGNAL_TYPE_STATIC_SCOPE so that
 			       * the %SOUP_MEMORY_TEMPORARY buffers used
@@ -542,7 +556,7 @@ soup_message_class_init (SoupMessageClass *message_class)
 			      G_SIGNAL_RUN_FIRST,
 			      G_STRUCT_OFFSET (SoupMessageClass, got_body),
 			      NULL, NULL,
-			      _soup_marshal_NONE__NONE,
+			      NULL,
 			      G_TYPE_NONE, 0);
 
 	/**
@@ -579,7 +593,7 @@ soup_message_class_init (SoupMessageClass *message_class)
 			      G_SIGNAL_RUN_FIRST,
 			      0,
 			      NULL, NULL,
-			      _soup_marshal_NONE__STRING_BOXED,
+			      NULL,
 			      G_TYPE_NONE, 2,
 			      G_TYPE_STRING,
 			      G_TYPE_HASH_TABLE);
@@ -599,7 +613,7 @@ soup_message_class_init (SoupMessageClass *message_class)
 			      G_SIGNAL_RUN_FIRST,
 			      G_STRUCT_OFFSET (SoupMessageClass, restarted),
 			      NULL, NULL,
-			      _soup_marshal_NONE__NONE,
+			      NULL,
 			      G_TYPE_NONE, 0);
 
 	/**
@@ -616,7 +630,7 @@ soup_message_class_init (SoupMessageClass *message_class)
 			      G_SIGNAL_RUN_FIRST,
 			      G_STRUCT_OFFSET (SoupMessageClass, finished),
 			      NULL, NULL,
-			      _soup_marshal_NONE__NONE,
+			      NULL,
 			      G_TYPE_NONE, 0);
 
 	/**
@@ -783,6 +797,28 @@ soup_message_class_init (SoupMessageClass *message_class)
 				    SOUP_TYPE_MESSAGE_BODY,
 				    G_PARAM_READABLE));
 	/**
+	 * SOUP_MESSAGE_REQUEST_BODY_DATA:
+	 *
+	 * Alias for the #SoupMessage:request-body-data property. (The
+	 * message's HTTP request body, as a #GBytes.)
+	 *
+	 * Since: 2.46
+	 **/
+	/**
+	 * SoupMessage:request-body-data:
+	 *
+	 * The message's HTTP request body, as a #GBytes.
+	 *
+	 * Since: 2.46
+	 **/
+	g_object_class_install_property (
+		object_class, PROP_REQUEST_BODY_DATA,
+		g_param_spec_boxed (SOUP_MESSAGE_REQUEST_BODY_DATA,
+				    "Request Body Data",
+				    "The HTTP request body",
+				    G_TYPE_BYTES,
+				    G_PARAM_READABLE));
+	/**
 	 * SOUP_MESSAGE_REQUEST_HEADERS:
 	 *
 	 * Alias for the #SoupMessage:request-headers property. (The
@@ -807,6 +843,28 @@ soup_message_class_init (SoupMessageClass *message_class)
 				    "Response Body",
 				    "The HTTP response content",
 				    SOUP_TYPE_MESSAGE_BODY,
+				    G_PARAM_READABLE));
+	/**
+	 * SOUP_MESSAGE_RESPONSE_BODY_DATA:
+	 *
+	 * Alias for the #SoupMessage:response-body-data property. (The
+	 * message's HTTP response body, as a #GBytes.)
+	 *
+	 * Since: 2.46
+	 **/
+	/**
+	 * SoupMessage:response-body-data:
+	 *
+	 * The message's HTTP response body, as a #GBytes.
+	 *
+	 * Since: 2.46
+	 **/
+	g_object_class_install_property (
+		object_class, PROP_RESPONSE_BODY_DATA,
+		g_param_spec_boxed (SOUP_MESSAGE_RESPONSE_BODY_DATA,
+				    "Response Body Data",
+				    "The HTTP response body",
+				    G_TYPE_BYTES,
 				    G_PARAM_READABLE));
 	/**
 	 * SOUP_MESSAGE_RESPONSE_HEADERS:
@@ -937,9 +995,10 @@ soup_message_new_from_uri (const char *method, SoupURI *uri)
 /**
  * soup_message_set_request:
  * @msg: the message
- * @content_type: MIME Content-Type of the body
+ * @content_type: (allow-none): MIME Content-Type of the body
  * @req_use: a #SoupMemoryUse describing how to handle @req_body
- * @req_body: a data buffer containing the body of the message request.
+ * @req_body: (allow-none) (array length=req_length) (element-type guint8):
+ *   a data buffer containing the body of the message request.
  * @req_length: the byte length of @req_body.
  * 
  * Convenience function to set the request body of a #SoupMessage. If
@@ -956,6 +1015,8 @@ soup_message_set_request (SoupMessage    *msg,
 	g_return_if_fail (content_type != NULL || req_length == 0);
 
 	if (content_type) {
+		g_warn_if_fail (strchr (content_type, '/') != NULL);
+
 		soup_message_headers_replace (msg->request_headers,
 					      "Content-Type", content_type);
 		soup_message_body_append (msg->request_body, req_use,
@@ -972,8 +1033,8 @@ soup_message_set_request (SoupMessage    *msg,
  * @msg: the message
  * @content_type: (allow-none): MIME Content-Type of the body
  * @resp_use: a #SoupMemoryUse describing how to handle @resp_body
- * @resp_body: (array length=resp_length) (element-type guint8): a data buffer
- * containing the body of the message response.
+ * @resp_body: (allow-none) (array length=resp_length) (element-type guint8):
+ *   a data buffer containing the body of the message response.
  * @resp_length: the byte length of @resp_body.
  * 
  * Convenience function to set the response body of a #SoupMessage. If
@@ -990,6 +1051,8 @@ soup_message_set_response (SoupMessage    *msg,
 	g_return_if_fail (content_type != NULL || resp_length == 0);
 
 	if (content_type) {
+		g_warn_if_fail (strchr (content_type, '/') != NULL);
+
 		soup_message_headers_replace (msg->response_headers,
 					      "Content-Type", content_type);
 		soup_message_body_append (msg->response_body, resp_use,
@@ -1717,10 +1780,8 @@ soup_message_set_chunk_allocator (SoupMessage *msg,
  * This disables the actions of #SoupSessionFeature<!-- -->s with the
  * given @feature_type (or a subclass of that type) on @msg, so that
  * @msg is processed as though the feature(s) hadn't been added to the
- * session. Eg, passing #SOUP_TYPE_PROXY_URI_RESOLVER for @feature_type
- * will disable proxy handling and cause @msg to be sent directly to
- * the indicated origin server, regardless of system proxy
- * configuration.
+ * session. Eg, passing #SOUP_TYPE_CONTENT_SNIFFER for @feature_type
+ * will disable Content-Type sniffing on the message.
  *
  * You must call this before queueing @msg on a session; calling it on
  * a message that has already been queued is undefined. In particular,
@@ -1926,7 +1987,7 @@ soup_message_set_soup_request (SoupMessage *msg,
  * If @msg is associated with a #SoupRequest, this returns that
  * request. Otherwise it returns %NULL.
  *
- * Return value: @msg's associated #SoupRequest
+ * Return value: (transfer none): @msg's associated #SoupRequest
  *
  * Since: 2.42
  */

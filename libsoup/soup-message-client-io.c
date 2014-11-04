@@ -83,7 +83,7 @@ get_request_headers (SoupMessage *msg, GString *header,
 	const char *name, *value;
 
 	if (strchr (uri->host, ':'))
-		uri_host = g_strdup_printf ("[%s]", uri->host);
+		uri_host = g_strdup_printf ("[%.*s]", (int) strcspn (uri->host, "%"), uri->host);
 	else if (g_hostname_is_non_ascii (uri->host))
 		uri_host = g_hostname_to_ascii (uri->host);
 	else
@@ -150,7 +150,7 @@ soup_message_send_request (SoupMessageQueueItem      *item,
 	GMainContext *async_context;
 	GIOStream *iostream;
 
-	if (SOUP_IS_SESSION_ASYNC (item->session)) {
+	if (!SOUP_IS_SESSION_SYNC (item->session)) {
 		async_context = soup_session_get_async_context (item->session);
 		if (!async_context)
 			async_context = g_main_context_default ();

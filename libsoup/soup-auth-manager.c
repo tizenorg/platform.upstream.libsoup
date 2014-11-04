@@ -14,7 +14,6 @@
 #include "soup-auth-manager.h"
 #include "soup.h"
 #include "soup-connection-auth.h"
-#include "soup-marshal.h"
 #include "soup-message-private.h"
 #include "soup-message-queue.h"
 #include "soup-path-map.h"
@@ -146,7 +145,7 @@ soup_auth_manager_class_init (SoupAuthManagerClass *auth_manager_class)
 			      G_SIGNAL_RUN_FIRST,
 			      G_STRUCT_OFFSET (SoupAuthManagerClass, authenticate),
 			      NULL, NULL,
-			      _soup_marshal_NONE__OBJECT_OBJECT_BOOLEAN,
+			      NULL,
 			      G_TYPE_NONE, 3,
 			      SOUP_TYPE_MESSAGE,
 			      SOUP_TYPE_AUTH,
@@ -679,13 +678,15 @@ soup_auth_manager_request_started (SoupSessionFeature *feature,
 
 	g_mutex_lock (&priv->lock);
 
-	auth = lookup_auth (priv, msg);
-	if (auth) {
-		authenticate_auth (manager, auth, msg, FALSE, FALSE, FALSE);
-		if (!soup_auth_is_ready (auth, msg))
-			auth = NULL;
+	if (msg->method != SOUP_METHOD_CONNECT) {
+		auth = lookup_auth (priv, msg);
+		if (auth) {
+			authenticate_auth (manager, auth, msg, FALSE, FALSE, FALSE);
+			if (!soup_auth_is_ready (auth, msg))
+				auth = NULL;
+		}
+		soup_message_set_auth (msg, auth);
 	}
-	soup_message_set_auth (msg, auth);
 
 	auth = priv->proxy_auth;
 	if (auth) {

@@ -164,6 +164,7 @@ do_request (SoupSession        *session,
 		soup_message_headers_append (msg->request_headers,
 					     header, value);
 	}
+	va_end (ap);
 
 	stream = soup_test_request_send (SOUP_REQUEST (req), NULL, 0, &error);
 	if (!stream) {
@@ -263,14 +264,13 @@ request_unqueued (SoupSession *session, SoupMessage *msg,
 }
 
 static void
-do_basics_test (SoupURI *base_uri)
+do_basics_test (gconstpointer data)
 {
+	SoupURI *base_uri = (SoupURI *)data;
 	SoupSession *session;
 	SoupCache *cache;
 	char *cache_dir;
 	char *body1, *body2, *body3, *body4, *body5, *cmp;
-
-	debug_printf (1, "Cache basics\n");
 
 	cache_dir = g_dir_make_tmp ("cache-test-XXXXXX", NULL);
 	debug_printf (2, "  Caching to %s\n", cache_dir);
@@ -306,15 +306,9 @@ do_basics_test (SoupURI *base_uri)
 	debug_printf (1, "  Fresh cached resource\n");
 	cmp = do_request (session, base_uri, "GET", "/1", NULL,
 			  NULL);
-	if (last_request_hit_network) {
-		debug_printf (1, "    Request for /1 not filled from cache!\n");
-		errors++;
-	}
-	if (strcmp (body1, cmp) != 0) {
-		debug_printf (1, "    Cached response (%s) did not match original (%s)\n",
-			      cmp, body1);
-		errors++;
-	}
+	soup_test_assert (!last_request_hit_network,
+			  "Request for /1 not filled from cache");
+	g_assert_cmpstr (body1, ==, cmp);
 	g_free (cmp);
 
 
@@ -322,15 +316,9 @@ do_basics_test (SoupURI *base_uri)
 	debug_printf (1, "  Heuristically-fresh cached resource\n");
 	cmp = do_request (session, base_uri, "GET", "/2", NULL,
 			  NULL);
-	if (last_request_hit_network) {
-		debug_printf (1, "    Request for /2 not filled from cache!\n");
-		errors++;
-	}
-	if (strcmp (body2, cmp) != 0) {
-		debug_printf (1, "    Cached response (%s) did not match original (%s)\n",
-			      cmp, body2);
-		errors++;
-	}
+	soup_test_assert (!last_request_hit_network,
+			  "Request for /2 not filled from cache");
+	g_assert_cmpstr (body2, ==, cmp);
 	g_free (cmp);
 
 
@@ -338,23 +326,15 @@ do_basics_test (SoupURI *base_uri)
 	debug_printf (1, "  Fresh cached resource with a query\n");
 	cmp = do_request (session, base_uri, "GET", "/1?attr=value", NULL,
 			  NULL);
-	if (!last_request_hit_network) {
-		debug_printf (1, "    Request for /1?attr=value filled from cache!\n");
-		errors++;
-	}
+	soup_test_assert (last_request_hit_network,
+			  "Request for /1?attr=value filled from cache");
 	g_free (cmp);
 	debug_printf (2, "  Second request\n");
 	cmp = do_request (session, base_uri, "GET", "/1", NULL,
 			  NULL);
-	if (last_request_hit_network) {
-		debug_printf (1, "    Second request for /1 not filled from cache!\n");
-		errors++;
-	}
-	if (strcmp (body1, cmp) != 0) {
-		debug_printf (1, "    Cached response (%s) did not match original (%s)\n",
-			      cmp, body1);
-		errors++;
-	}
+	soup_test_assert (!last_request_hit_network,
+			  "Second request for /1 not filled from cache");
+	g_assert_cmpstr (body1, ==, cmp);
 	g_free (cmp);
 
 
@@ -364,19 +344,11 @@ do_basics_test (SoupURI *base_uri)
 			  "Test-Set-Last-Modified", "Fri, 01 Jan 2010 00:00:00 GMT",
 			  "Test-Set-Cache-Control", "must-revalidate",
 			  NULL);
-	if (!last_request_validated) {
-		debug_printf (1, "    Request for /3 not validated!\n");
-		errors++;
-	}
-	if (last_request_hit_network) {
-		debug_printf (1, "    Request for /3 not filled from cache!\n");
-		errors++;
-	}
-	if (strcmp (body3, cmp) != 0) {
-		debug_printf (1, "    Cached response (%s) did not match original (%s)\n",
-			      cmp, body3);
-		errors++;
-	}
+	soup_test_assert (last_request_validated,
+			  "Request for /3 not validated");
+	soup_test_assert (!last_request_hit_network,
+			  "Request for /3 not filled from cache");
+	g_assert_cmpstr (body3, ==, cmp);
 	g_free (cmp);
 
 
@@ -386,18 +358,11 @@ do_basics_test (SoupURI *base_uri)
 			  "Test-Set-Last-Modified", "Sat, 02 Jan 2010 00:00:00 GMT",
 			  "Test-Set-Cache-Control", "must-revalidate",
 			  NULL);
-	if (!last_request_validated) {
-		debug_printf (1, "    Request for /3 not validated!\n");
-		errors++;
-	}
-	if (!last_request_hit_network) {
-		debug_printf (1, "    Request for /3 filled from cache!\n");
-		errors++;
-	}
-	if (strcmp (body3, cmp) == 0) {
-		debug_printf (1, "    Request for /3 returned cached response\n");
-		errors++;
-	}
+	soup_test_assert (last_request_validated,
+			  "Request for /3 not validated");
+	soup_test_assert (last_request_hit_network,
+			  "Request for /3 filled from cache");
+	g_assert_cmpstr (body3, !=, cmp);
 	g_free (cmp);
 
 	debug_printf (2, "  Second request\n");
@@ -405,18 +370,11 @@ do_basics_test (SoupURI *base_uri)
 			  "Test-Set-Last-Modified", "Sat, 02 Jan 2010 00:00:00 GMT",
 			  "Test-Set-Cache-Control", "must-revalidate",
 			  NULL);
-	if (!last_request_validated) {
-		debug_printf (1, "    Second request for /3 not validated!\n");
-		errors++;
-	}
-	if (last_request_hit_network) {
-		debug_printf (1, "    Second request for /3 not filled from cache!\n");
-		errors++;
-	}
-	if (strcmp (body3, cmp) == 0) {
-		debug_printf (1, "    Replacement body for /3 not cached!\n");
-		errors++;
-	}
+	soup_test_assert (last_request_validated,
+			  "Second request for /3 not validated");
+	soup_test_assert (!last_request_hit_network,
+			  "Second request for /3 not filled from cache");
+	g_assert_cmpstr (body3, !=, cmp);
 	g_free (cmp);
 
 	/* ETag + must-revalidate causes a conditional request */
@@ -424,19 +382,11 @@ do_basics_test (SoupURI *base_uri)
 	cmp = do_request (session, base_uri, "GET", "/4", NULL,
 			  "Test-Set-ETag", "\"abcdefg\"",
 			  NULL);
-	if (!last_request_validated) {
-		debug_printf (1, "    Request for /4 not validated!\n");
-		errors++;
-	}
-	if (last_request_hit_network) {
-		debug_printf (1, "    Request for /4 not filled from cache!\n");
-		errors++;
-	}
-	if (strcmp (body4, cmp) != 0) {
-		debug_printf (1, "    Cached response (%s) did not match original (%s)\n",
-			      cmp, body4);
-		errors++;
-	}
+	soup_test_assert (last_request_validated,
+			  "Request for /4 not validated");
+	soup_test_assert (!last_request_hit_network,
+			  "Request for /4 not filled from cache");
+	g_assert_cmpstr (body4, ==, cmp);
 	g_free (cmp);
 
 
@@ -445,15 +395,9 @@ do_basics_test (SoupURI *base_uri)
 	cmp = do_request (session, base_uri, "GET", "/5", NULL,
 			  "Test-Set-Cache-Control", "no-cache",
 			  NULL);
-	if (!last_request_hit_network) {
-		debug_printf (1, "    Request for /5 filled from cache!\n");
-		errors++;
-	}
-	if (strcmp (body5, cmp) != 0) {
-		debug_printf (1, "    Re-retrieved response (%s) did not match original (%s)\n",
-			      cmp, body5);
-		errors++;
-	}
+	soup_test_assert (last_request_hit_network,
+			  "Request for /5 filled from cache");
+	g_assert_cmpstr (body5, ==, cmp);
 	g_free (cmp);
 
 
@@ -461,17 +405,14 @@ do_basics_test (SoupURI *base_uri)
 	debug_printf (1, "  Invalidating and re-requesting a cached resource\n");
 	cmp = do_request (session, base_uri, "PUT", "/1", NULL,
 			  NULL);
-	if (!last_request_hit_network) {
-		debug_printf (1, "    PUT filled from cache!\n");
-		errors++;
-	}
+	soup_test_assert (last_request_hit_network,
+			  "PUT filled from cache");
 	g_free (cmp);
 	cmp = do_request (session, base_uri, "GET", "/1", NULL,
 			  NULL);
-	if (!last_request_hit_network) {
-		debug_printf (1, "    PUT failed to invalidate cache entry!\n");
-		errors++;
-	}
+	soup_test_assert (last_request_hit_network,
+			  "PUT failed to invalidate cache entry");
+	g_assert_true (last_request_hit_network);
 	g_free (cmp);
 
 
@@ -487,15 +428,16 @@ do_basics_test (SoupURI *base_uri)
 }
 
 static void
-do_cancel_test (SoupURI *base_uri)
+do_cancel_test (gconstpointer data)
 {
+	SoupURI *base_uri = (SoupURI *)data;
 	SoupSession *session;
 	SoupCache *cache;
 	char *cache_dir;
 	char *body1, *body2;
 	guint flags;
 
-	debug_printf (1, "Cache cancel tests\n");
+	g_test_bug ("692310");
 
 	cache_dir = g_dir_make_tmp ("cache-test-XXXXXX", NULL);
 	debug_printf (2, "  Caching to %s\n", cache_dir);
@@ -520,20 +462,12 @@ do_cancel_test (SoupURI *base_uri)
 	debug_printf (1, "  Cancel fresh resource with soup_session_message_cancel()\n");
 	flags = SOUP_TEST_REQUEST_CANCEL_MESSAGE | SOUP_TEST_REQUEST_CANCEL_IMMEDIATE;
 	do_request_with_cancel (session, base_uri, "GET", "/1", flags);
-	if (cancelled_requests != 1) {
-		debug_printf (1, "    invalid number of cancelled requests: %d (1 expected)\n",
-			      cancelled_requests);
-		errors++;
-	}
+	g_assert_cmpint (cancelled_requests, ==, 1);
 
 	debug_printf (1, "  Cancel fresh resource with g_cancellable_cancel()\n");
 	flags = SOUP_TEST_REQUEST_CANCEL_CANCELLABLE | SOUP_TEST_REQUEST_CANCEL_IMMEDIATE;
 	do_request_with_cancel (session, base_uri, "GET", "/1", flags);
-	if (cancelled_requests != 1) {
-		debug_printf (1, "    invalid number of cancelled requests: %d (1 expected)\n",
-			      cancelled_requests);
-		errors++;
-	}
+	g_assert_cmpint (cancelled_requests, ==, 1);
 
 	soup_test_session_abort_unref (session);
 
@@ -548,20 +482,12 @@ do_cancel_test (SoupURI *base_uri)
 	debug_printf (1, "  Cancel a revalidating resource with soup_session_message_cancel()\n");
 	flags = SOUP_TEST_REQUEST_CANCEL_MESSAGE | SOUP_TEST_REQUEST_CANCEL_IMMEDIATE;
 	do_request_with_cancel (session, base_uri, "GET", "/2", flags);
-	if (cancelled_requests != 2) {
-		debug_printf (1, "    invalid number of cancelled requests: %d (2 expected)\n",
-			      cancelled_requests);
-		errors++;
-	}
+	g_assert_cmpint (cancelled_requests, ==, 2);
 
 	debug_printf (1, "  Cancel a revalidating resource with g_cancellable_cancel()\n");
 	flags = SOUP_TEST_REQUEST_CANCEL_CANCELLABLE | SOUP_TEST_REQUEST_CANCEL_IMMEDIATE;
 	do_request_with_cancel (session, base_uri, "GET", "/2", flags);
-	if (cancelled_requests != 2) {
-		debug_printf (1, "    invalid number of cancelled requests: %d (2 expected)\n",
-			      cancelled_requests);
-		errors++;
-	}
+	g_assert_cmpint (cancelled_requests, ==, 2);
 
 	soup_test_session_abort_unref (session);
 
@@ -571,9 +497,23 @@ do_cancel_test (SoupURI *base_uri)
 	g_free (body2);
 }
 
-static void
-do_refcounting_test (SoupURI *base_uri)
+static gboolean
+unref_stream (gpointer stream)
 {
+	g_object_unref (stream);
+	return FALSE;
+}
+
+static void
+base_stream_unreffed (gpointer loop, GObject *ex_base_stream)
+{
+	g_main_loop_quit (loop);
+}
+
+static void
+do_refcounting_test (gconstpointer data)
+{
+	SoupURI *base_uri = (SoupURI *)data;
 	SoupSession *session;
 	SoupCache *cache;
 	char *cache_dir;
@@ -582,8 +522,9 @@ do_refcounting_test (SoupURI *base_uri)
 	SoupURI *uri;
 	GError *error = NULL;
 	guint flags;
+	GMainLoop *loop;
 
-	debug_printf (1, "Cache refcounting tests\n");
+	g_test_bug ("682527");
 
 	cache_dir = g_dir_make_tmp ("cache-test-XXXXXX", NULL);
 	debug_printf (2, "  Caching to %s\n", cache_dir);
@@ -609,19 +550,16 @@ do_refcounting_test (SoupURI *base_uri)
 		g_object_unref (req);
 		return;
 	}
+	g_object_unref (req);
 
 	base_stream = g_filter_input_stream_get_base_stream (G_FILTER_INPUT_STREAM (stream));
-	g_object_add_weak_pointer (G_OBJECT (base_stream), (gpointer *)&base_stream);
-
-	g_clear_object (&req);
-	g_object_unref (stream);
 
 	debug_printf (1, " Checking that the base stream is properly unref'ed\n");
-	if (base_stream) {
-		errors++;
-		debug_printf (1, "leaked GInputStream!\n");
-		g_object_remove_weak_pointer (G_OBJECT (base_stream), (gpointer *)&base_stream);
-	}
+	loop = g_main_loop_new (NULL, FALSE);
+	g_object_weak_ref (G_OBJECT (base_stream), base_stream_unreffed, loop);
+	g_idle_add (unref_stream, stream);
+	g_main_loop_run (loop);
+	g_main_loop_unref (loop);
 
 	soup_cache_flush ((SoupCache *)soup_session_get_feature (session, SOUP_TYPE_CACHE));
 
@@ -632,16 +570,15 @@ do_refcounting_test (SoupURI *base_uri)
 }
 
 static void
-do_headers_test (SoupURI *base_uri)
+do_headers_test (gconstpointer data)
 {
+	SoupURI *base_uri = (SoupURI *)data;
 	SoupSession *session;
 	SoupMessageHeaders *headers;
 	SoupCache *cache;
 	char *cache_dir;
 	char *body1, *cmp;
 	const char *header_value;
-
-	debug_printf (1, "Cache basics\n");
 
 	cache_dir = g_dir_make_tmp ("cache-test-XXXXXX", NULL);
 	debug_printf (2, "  Caching to %s\n", cache_dir);
@@ -666,14 +603,10 @@ do_headers_test (SoupURI *base_uri)
 			  "Test-Set-Last-Modified", "Fri, 01 Jan 2010 00:00:00 GMT",
 			  "Test-Set-My-Header", "My header NEW value",
 			  NULL);
-	if (!last_request_validated) {
-		debug_printf (1, "    Request for /1 not validated!\n");
-		errors++;
-	}
-	if (last_request_hit_network) {
-		debug_printf (1, "    Request for /1 not filled from cache!\n");
-		errors++;
-	}
+	soup_test_assert (last_request_validated,
+			  "Request for /1 not validated");
+	soup_test_assert (!last_request_hit_network,
+			  "Request for /1 not filled from cache");
 	g_free (cmp);
 
 	/* Check that cache returns the updated header */
@@ -682,23 +615,12 @@ do_headers_test (SoupURI *base_uri)
 	cmp = do_request (session, base_uri, "GET", "/1", headers,
 			  "Test-Set-Last-Modified", "Fri, 01 Jan 2010 00:00:00 GMT",
 			  NULL);
-	if (last_request_hit_network) {
-		debug_printf (1, "    Request for /1 not filled from cache!\n");
-		errors++;
-	}
+	soup_test_assert (!last_request_hit_network,
+			  "Request for /1 not filled from cache");
 	g_free (cmp);
 
 	header_value = soup_message_headers_get_list (headers, "My-Header");
-	if (!header_value) {
-		debug_printf (1, "    Header \"My-Header\" not present!\n");
-		errors++;
-	}
-	if (strcmp (header_value, "My header NEW value") != 0) {
-		debug_printf (1, "    \"My-Header = %s\" and should be \"%s\"\n",
-			      header_value,
-			      "My header NEW value");
-		errors++;
-	}
+	g_assert_cmpstr (header_value, ==, "My header NEW value");
 	soup_message_headers_free (headers);
 
 	soup_test_session_abort_unref (session);
@@ -713,6 +635,7 @@ main (int argc, char **argv)
 {
 	SoupServer *server;
 	SoupURI *base_uri;
+	int ret;
 
 	test_init (argc, argv, NULL);
 
@@ -721,14 +644,16 @@ main (int argc, char **argv)
 	base_uri = soup_uri_new ("http://127.0.0.1/");
 	soup_uri_set_port (base_uri, soup_server_get_port (server));
 
-	do_basics_test (base_uri);
-	do_cancel_test (base_uri);
-	do_refcounting_test (base_uri);
-	do_headers_test (base_uri);
+	g_test_add_data_func ("/cache/basics", base_uri, do_basics_test);
+	g_test_add_data_func ("/cache/cancellation", base_uri, do_cancel_test);
+	g_test_add_data_func ("/cache/refcounting", base_uri, do_refcounting_test);
+	g_test_add_data_func ("/cache/headers", base_uri, do_headers_test);
+
+	ret = g_test_run ();
 
 	soup_uri_free (base_uri);
 	soup_test_server_quit_unref (server);
 
 	test_cleanup ();
-	return errors != 0;
+	return ret;
 }

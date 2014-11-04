@@ -11,7 +11,6 @@
 
 #include "soup-client-input-stream.h"
 #include "soup.h"
-#include "soup-marshal.h"
 #include "soup-message-private.h"
 
 struct _SoupClientInputStreamPrivate {
@@ -129,9 +128,12 @@ soup_client_input_stream_close_fn (GInputStream  *stream,
 				   GError       **error)
 {
 	SoupClientInputStream *cistream = SOUP_CLIENT_INPUT_STREAM (stream);
+	gboolean success;
 
-	return soup_message_io_run_until_finish (cistream->priv->msg,
-						 cancellable, error);
+	success = soup_message_io_run_until_finish (cistream->priv->msg, TRUE,
+						    NULL, error);
+	soup_message_io_finished (cistream->priv->msg);
+	return success;
 }
 
 static gboolean
@@ -151,13 +153,15 @@ close_async_ready (SoupMessage *msg, gpointer user_data)
 	SoupClientInputStream *cistream = g_task_get_source_object (task);
 	GError *error = NULL;
 
-	if (!soup_message_io_run_until_finish (cistream->priv->msg,
+	if (!soup_message_io_run_until_finish (cistream->priv->msg, FALSE,
 					       g_task_get_cancellable (task),
 					       &error) &&
 	    g_error_matches (error, G_IO_ERROR, G_IO_ERROR_WOULD_BLOCK)) {
 		g_error_free (error);
 		return TRUE;
 	}
+
+	soup_message_io_finished (cistream->priv->msg);
 
 	if (error) {
 		g_task_return_error (task, error);
@@ -188,11 +192,13 @@ soup_client_input_stream_close_async (GInputStream        *stream,
 	task = g_task_new (stream, cancellable, callback, user_data);
 	g_task_set_priority (task, priority);
 
-	source = soup_message_io_get_source (cistream->priv->msg,
-					     cancellable, NULL, NULL);
-					     
-	g_task_attach_source (task, source, (GSourceFunc) close_async_ready);
-	g_source_unref (source);
+	if (close_async_ready (cistream->priv->msg, task) == G_SOURCE_CONTINUE) {
+		source = soup_message_io_get_source (cistream->priv->msg,
+						     cancellable, NULL, NULL);
+
+		g_task_attach_source (task, source, (GSourceFunc) close_async_ready);
+		g_source_unref (source);
+	}
 }
 
 static gboolean
@@ -226,7 +232,7 @@ soup_client_input_stream_class_init (SoupClientInputStreamClass *stream_class)
 			      G_SIGNAL_RUN_LAST,
 			      0,
 			      NULL, NULL,
-			      _soup_marshal_NONE__NONE,
+			      NULL,
 			      G_TYPE_NONE, 0);
 
 	g_object_class_install_property (

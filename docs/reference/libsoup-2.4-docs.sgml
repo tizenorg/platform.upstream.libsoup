@@ -10,6 +10,7 @@
     <title>Tutorial</title>
     <xi:include href="build-howto.xml"/>
     <xi:include href="client-howto.xml"/>
+    <xi:include href="request-howto.xml"/>
     <xi:include href="server-howto.xml"/>
     <xi:include href="session-porting.xml"/>
   </chapter>
@@ -53,7 +54,6 @@
     <xi:include href="xml/soup-cookie-jar-text.xml"/>
     <xi:include href="xml/soup-cookie-jar-db.xml"/>
     <xi:include href="xml/soup-logger.xml"/>
-    <xi:include href="xml/soup-proxy-uri-resolver.xml"/>
     <xi:include href="xml/soup-proxy-resolver-default.xml"/>
   </chapter>
 

@@ -55,8 +55,6 @@ do_cookies_accept_policy_test (void)
 	GSList *l, *p;
 	int i;
 
-	debug_printf (1, "SoupCookieJarAcceptPolicy test\n");
-
 	session = soup_test_session_new (SOUP_TYPE_SESSION_ASYNC, NULL);
 	soup_session_add_feature_by_type (session, SOUP_TYPE_COOKIE_JAR);
 	jar = SOUP_COOKIE_JAR (soup_session_get_feature (session, SOUP_TYPE_COOKIE_JAR));
@@ -83,13 +81,7 @@ do_cookies_accept_policy_test (void)
 		g_object_unref (msg);
 
 		l = soup_cookie_jar_all_cookies (jar);
-		if (g_slist_length (l) < validResults[i].n_cookies) {
-			debug_printf (1, " accepted less cookies than it should have\n");
-			errors++;
-		} else if (g_slist_length (l) > validResults[i].n_cookies) {
-			debug_printf (1, " accepted more cookies than it should have\n");
-			errors++;
-		}
+		g_assert_cmpint (g_slist_length (l), ==, validResults[i].n_cookies);
 
 		for (p = l; p; p = p->next) {
 			soup_cookie_jar_delete_cookie (jar, p->data);
@@ -113,7 +105,7 @@ do_cookies_parsing_test (void)
 	SoupCookie *cookie;
 	gboolean got1, got2, got3;
 
-	debug_printf (1, "\nSoupCookie parsing test\n");
+	g_test_bug ("678753");
 
 	session = soup_test_session_new (SOUP_TYPE_SESSION_ASYNC, NULL);
 	soup_session_add_feature_by_type (session, SOUP_TYPE_COOKIE_JAR);
@@ -146,56 +138,28 @@ do_cookies_parsing_test (void)
 
 		if (!strcmp (soup_cookie_get_name (cookie), "one")) {
 			got1 = TRUE;
-			if (!soup_cookie_get_http_only (cookie)) {
-				debug_printf (1, "  cookie 1 is not HttpOnly!\n");
-				errors++;
-			}
-			if (!soup_cookie_get_expires (cookie)) {
-				debug_printf (1, "  cookie 1 did not fully parse!\n");
-				errors++;
-			}
+			g_assert_true (soup_cookie_get_http_only (cookie));
+			g_assert_true (soup_cookie_get_expires (cookie) != NULL);
 		} else if (!strcmp (soup_cookie_get_name (cookie), "two")) {
 			got2 = TRUE;
-			if (!soup_cookie_get_http_only (cookie)) {
-				debug_printf (1, "  cookie 2 is not HttpOnly!\n");
-				errors++;
-			}
-			if (!soup_cookie_get_expires (cookie)) {
-				debug_printf (1, "  cookie 3 did not fully parse!\n");
-				errors++;
-			}
+			g_assert_true (soup_cookie_get_http_only (cookie));
+			g_assert_true (soup_cookie_get_expires (cookie) != NULL);
 		} else if (!strcmp (soup_cookie_get_name (cookie), "three")) {
 			got3 = TRUE;
-			if (!soup_cookie_get_http_only (cookie)) {
-				debug_printf (1, "  cookie 3 is not HttpOnly!\n");
-				errors++;
-			}
-			if (!soup_cookie_get_expires (cookie)) {
-				debug_printf (1, "  cookie 3 did not fully parse!\n");
-				errors++;
-			}
+			g_assert_true (soup_cookie_get_http_only (cookie));
+			g_assert_true (soup_cookie_get_expires (cookie) != NULL);
 		} else {
-			debug_printf (1, "  got unexpected cookie '%s'\n",
-				      soup_cookie_get_name (cookie));
-			errors++;
+			soup_test_assert (FALSE, "got unexpected cookie '%s'",
+					  soup_cookie_get_name (cookie));
 		}
 
 		soup_cookie_free (cookie);
 	}
 	g_slist_free (cookies);
 
-	if (!got1) {
-		debug_printf (1, "  didn't get cookie 1\n");
-		errors++;
-	}
-	if (!got2) {
-		debug_printf (1, "  didn't get cookie 2\n");
-		errors++;
-	}
-	if (!got3) {
-		debug_printf (1, "  didn't get cookie 3\n");
-		errors++;
-	}
+	g_assert_true (got1);
+	g_assert_true (got2);
+	g_assert_true (got3);
 
 	soup_test_session_abort_unref (session);
 }	
@@ -203,6 +167,8 @@ do_cookies_parsing_test (void)
 int
 main (int argc, char **argv)
 {
+	int ret;
+
 	test_init (argc, argv, NULL);
 
 	server = soup_test_server_new (TRUE);
@@ -212,14 +178,15 @@ main (int argc, char **argv)
 	soup_uri_set_port (first_party_uri, soup_server_get_port (server));
 	soup_uri_set_port (third_party_uri, soup_server_get_port (server));
 
-	do_cookies_accept_policy_test ();
-	do_cookies_parsing_test ();
+	g_test_add_func ("/cookies/accept-policy", do_cookies_accept_policy_test);
+	g_test_add_func ("/cookies/parsing", do_cookies_parsing_test);
+
+	ret = g_test_run ();
 
 	soup_uri_free (first_party_uri);
 	soup_uri_free (third_party_uri);
 	soup_test_server_quit_unref (server);
 
 	test_cleanup ();
-
-	return errors != 0;
+	return ret;
 }

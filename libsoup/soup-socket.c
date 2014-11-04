@@ -17,7 +17,6 @@
 #include "soup.h"
 #include "soup-filter-input-stream.h"
 #include "soup-io-stream.h"
-#include "soup-marshal.h"
 #include "soup-misc-private.h"
 
 /**
@@ -183,6 +182,7 @@ finish_socket_setup (SoupSocketPrivate *priv)
 		priv->ostream = g_object_ref (g_io_stream_get_output_stream (priv->iostream));
 
 	g_socket_set_timeout (priv->gsock, priv->timeout);
+	g_socket_set_option (priv->gsock, IPPROTO_TCP, TCP_NODELAY, TRUE, NULL);
 }
 
 static void
@@ -321,7 +321,7 @@ soup_socket_class_init (SoupSocketClass *socket_class)
 			      G_SIGNAL_RUN_LAST,
 			      G_STRUCT_OFFSET (SoupSocketClass, readable),
 			      NULL, NULL,
-			      _soup_marshal_NONE__NONE,
+			      NULL,
 			      G_TYPE_NONE, 0);
 
 	/**
@@ -337,7 +337,7 @@ soup_socket_class_init (SoupSocketClass *socket_class)
 			      G_SIGNAL_RUN_LAST,
 			      G_STRUCT_OFFSET (SoupSocketClass, writable),
 			      NULL, NULL,
-			      _soup_marshal_NONE__NONE,
+			      NULL,
 			      G_TYPE_NONE, 0);
 
 	/**
@@ -353,7 +353,7 @@ soup_socket_class_init (SoupSocketClass *socket_class)
 			      G_SIGNAL_RUN_LAST,
 			      G_STRUCT_OFFSET (SoupSocketClass, disconnected),
 			      NULL, NULL,
-			      _soup_marshal_NONE__NONE,
+			      NULL,
 			      G_TYPE_NONE, 0);
 
 	/**
@@ -373,7 +373,7 @@ soup_socket_class_init (SoupSocketClass *socket_class)
 			      G_SIGNAL_RUN_FIRST,
 			      G_STRUCT_OFFSET (SoupSocketClass, new_connection),
 			      NULL, NULL,
-			      _soup_marshal_NONE__OBJECT,
+			      NULL,
 			      G_TYPE_NONE, 1,
 			      SOUP_TYPE_SOCKET);
 	/**
@@ -667,38 +667,36 @@ re_emit_socket_client_event (GSocketClient       *client,
 		       event, connection);
 }
 
-static guint
-socket_connected (SoupSocket *sock, GSocketConnection *conn, GError *error)
+static gboolean
+socket_connect_finish (SoupSocket *sock, GSocketConnection *conn)
 {
 	SoupSocketPrivate *priv = SOUP_SOCKET_GET_PRIVATE (sock);
 
-	if (priv->connect_cancel) {
-		GCancellable *cancellable = priv->connect_cancel;
-		gboolean cancelled = g_cancellable_is_cancelled (cancellable);
+	g_clear_object (&priv->connect_cancel);
 
-		g_object_unref (priv->connect_cancel);
-		priv->connect_cancel = NULL;
-		if (cancelled) {
-			g_clear_error (&error);
-			return SOUP_STATUS_CANCELLED;
-		}
-	}
+	if (conn) {
+		priv->conn = (GIOStream *)conn;
+		priv->gsock = g_object_ref (g_socket_connection_get_socket (conn));
+		finish_socket_setup (priv);
+		return TRUE;
+	} else
+		return FALSE;
+}
 
-	if (error) {
-		if (error->domain == G_RESOLVER_ERROR) {
-			g_error_free (error);
-			return SOUP_STATUS_CANT_RESOLVE;
-		} else {
-			g_error_free (error);
-			return SOUP_STATUS_CANT_CONNECT;
-		}
-	}
+static guint
+socket_legacy_error (SoupSocket *sock, GError *error)
+{
+	guint status;
 
-	priv->conn = (GIOStream *)conn;
-	priv->gsock = g_object_ref (g_socket_connection_get_socket (conn));
-	finish_socket_setup (priv);
+	if (g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
+		status = SOUP_STATUS_CANCELLED;
+	else if (error->domain == G_RESOLVER_ERROR)
+		status = SOUP_STATUS_CANT_RESOLVE;
+	else
+		status = SOUP_STATUS_CANT_CONNECT;
 
-	return SOUP_STATUS_OK;
+	g_error_free (error);
+	return status;
 }
 
 static GSocketClient *
@@ -717,10 +715,67 @@ new_socket_client (SoupSocket *sock)
 	if (priv->timeout)
 		g_socket_client_set_timeout (client, priv->timeout);
 
-	if (priv->local_addr)
-		g_socket_client_set_local_address (client, soup_address_get_gsockaddr (priv->local_addr));
+	if (priv->local_addr) {
+		GSocketAddress *addr;
+
+		addr = soup_address_get_gsockaddr (priv->local_addr);
+		g_socket_client_set_local_address (client, addr);
+		g_object_unref (addr);
+	}
 
 	return client;
+}
+
+static void
+async_connected (GObject *client, GAsyncResult *result, gpointer data)
+{
+	GTask *task = data;
+	SoupSocket *sock = g_task_get_source_object (task);
+	GSocketConnection *conn;
+	GError *error = NULL;
+
+	conn = g_socket_client_connect_finish (G_SOCKET_CLIENT (client),
+					       result, &error);
+	if (socket_connect_finish (sock, conn))
+		g_task_return_boolean (task, TRUE);
+	else
+		g_task_return_error (task, error);
+	g_object_unref (task);
+}
+
+gboolean
+soup_socket_connect_finish_internal (SoupSocket    *sock,
+				     GAsyncResult  *result,
+				     GError       **error)
+{
+	return g_task_propagate_boolean (G_TASK (result), error);
+}
+
+void
+soup_socket_connect_async_internal (SoupSocket          *sock,
+				    GCancellable        *cancellable,
+				    GAsyncReadyCallback  callback,
+				    gpointer             user_data)
+{
+	SoupSocketPrivate *priv;
+	GSocketClient *client;
+	GTask *task;
+
+	g_return_if_fail (SOUP_IS_SOCKET (sock));
+	priv = SOUP_SOCKET_GET_PRIVATE (sock);
+	g_return_if_fail (!priv->is_server);
+	g_return_if_fail (priv->gsock == NULL);
+	g_return_if_fail (priv->remote_addr != NULL);
+
+	priv->connect_cancel = cancellable ? g_object_ref (cancellable) : g_cancellable_new ();
+	task = g_task_new (sock, priv->connect_cancel, callback, user_data);
+
+	client = new_socket_client (sock);
+	g_socket_client_connect_async (client,
+				       G_SOCKET_CONNECTABLE (priv->remote_addr),
+				       priv->connect_cancel,
+				       async_connected, task);
+	g_object_unref (client);
 }
 
 /**
@@ -739,22 +794,25 @@ typedef struct {
 } SoupSocketAsyncConnectData;
 
 static void
-async_connected (GObject *client, GAsyncResult *result, gpointer data)
+legacy_connect_async_cb (GObject       *object,
+			 GAsyncResult  *result,
+			 gpointer       user_data)
 {
-	SoupSocketAsyncConnectData *sacd = data;
-	SoupSocketPrivate *priv = SOUP_SOCKET_GET_PRIVATE (sacd->sock);
+	SoupSocket *sock = SOUP_SOCKET (object);
+	SoupSocketPrivate *priv = SOUP_SOCKET_GET_PRIVATE (sock);
+	SoupSocketAsyncConnectData *sacd = user_data;
 	GError *error = NULL;
-	GSocketConnection *conn;
 	guint status;
 
 	if (priv->async_context && !priv->use_thread_context)
 		g_main_context_pop_thread_default (priv->async_context);
 
-	conn = g_socket_client_connect_finish (G_SOCKET_CLIENT (client),
-					       result, &error);
-	status = socket_connected (sacd->sock, conn, error);
+	if (soup_socket_connect_finish_internal (sock, result, &error))
+		status = SOUP_STATUS_OK;
+	else
+		status = socket_legacy_error (sock, error);
 
-	sacd->callback (sacd->sock, status, sacd->user_data);
+	sacd->callback (sock, status, sacd->user_data);
 	g_object_unref (sacd->sock);
 	g_slice_free (SoupSocketAsyncConnectData, sacd);
 }
@@ -780,10 +838,11 @@ soup_socket_connect_async (SoupSocket *sock, GCancellable *cancellable,
 {
 	SoupSocketPrivate *priv;
 	SoupSocketAsyncConnectData *sacd;
-	GSocketClient *client;
 
 	g_return_if_fail (SOUP_IS_SOCKET (sock));
 	priv = SOUP_SOCKET_GET_PRIVATE (sock);
+	g_return_if_fail (!priv->is_server);
+	g_return_if_fail (priv->gsock == NULL);
 	g_return_if_fail (priv->remote_addr != NULL);
 
 	sacd = g_slice_new0 (SoupSocketAsyncConnectData);
@@ -791,17 +850,38 @@ soup_socket_connect_async (SoupSocket *sock, GCancellable *cancellable,
 	sacd->callback = callback;
 	sacd->user_data = user_data;
 
-	priv->connect_cancel = cancellable ? g_object_ref (cancellable) : g_cancellable_new ();
-
 	if (priv->async_context && !priv->use_thread_context)
 		g_main_context_push_thread_default (priv->async_context);
 
+	soup_socket_connect_async_internal (sock, cancellable,
+					    legacy_connect_async_cb,
+					    sacd);
+}
+
+gboolean
+soup_socket_connect_sync_internal (SoupSocket    *sock,
+				   GCancellable  *cancellable,
+				   GError       **error)
+{
+	SoupSocketPrivate *priv;
+	GSocketClient *client;
+	GSocketConnection *conn;
+
+	g_return_val_if_fail (SOUP_IS_SOCKET (sock), SOUP_STATUS_MALFORMED);
+	priv = SOUP_SOCKET_GET_PRIVATE (sock);
+	g_return_val_if_fail (!priv->is_server, SOUP_STATUS_MALFORMED);
+	g_return_val_if_fail (priv->gsock == NULL, SOUP_STATUS_MALFORMED);
+	g_return_val_if_fail (priv->remote_addr != NULL, SOUP_STATUS_MALFORMED);
+
+	priv->connect_cancel = cancellable ? g_object_ref (cancellable) : g_cancellable_new ();
+
 	client = new_socket_client (sock);
-	g_socket_client_connect_async (client,
-				       G_SOCKET_CONNECTABLE (priv->remote_addr),
-				       priv->connect_cancel,
-				       async_connected, sacd);
+	conn = g_socket_client_connect (client,
+					G_SOCKET_CONNECTABLE (priv->remote_addr),
+					priv->connect_cancel, error);
 	g_object_unref (client);
+
+	return socket_connect_finish (sock, conn);
 }
 
 /**
@@ -821,8 +901,6 @@ guint
 soup_socket_connect_sync (SoupSocket *sock, GCancellable *cancellable)
 {
 	SoupSocketPrivate *priv;
-	GSocketClient *client;
-	GSocketConnection *conn;
 	GError *error = NULL;
 
 	g_return_val_if_fail (SOUP_IS_SOCKET (sock), SOUP_STATUS_MALFORMED);
@@ -831,19 +909,10 @@ soup_socket_connect_sync (SoupSocket *sock, GCancellable *cancellable)
 	g_return_val_if_fail (priv->gsock == NULL, SOUP_STATUS_MALFORMED);
 	g_return_val_if_fail (priv->remote_addr != NULL, SOUP_STATUS_MALFORMED);
 
-	if (cancellable)
-		g_object_ref (cancellable);
+	if (soup_socket_connect_sync_internal (sock, cancellable, &error))
+		return SOUP_STATUS_OK;
 	else
-		cancellable = g_cancellable_new ();
-	priv->connect_cancel = cancellable;
-
-	client = new_socket_client (sock);
-	conn = g_socket_client_connect (client,
-					G_SOCKET_CONNECTABLE (priv->remote_addr),
-					priv->connect_cancel, &error);
-	g_object_unref (client);
-
-	return socket_connected (sock, conn, error);
+		return socket_legacy_error (sock, error);
 }
 
 /**
@@ -1036,37 +1105,11 @@ soup_socket_accept_certificate (GTlsConnection *conn, GTlsCertificate *cert,
 	return TRUE;
 }
 
-/**
- * soup_socket_start_ssl:
- * @sock: the socket
- * @cancellable: a #GCancellable
- *
- * Starts using SSL on @socket.
- *
- * Return value: success or failure
- **/
-gboolean
-soup_socket_start_ssl (SoupSocket *sock, GCancellable *cancellable)
-{
-	SoupSocketPrivate *priv = SOUP_SOCKET_GET_PRIVATE (sock);
-
-	return soup_socket_start_proxy_ssl (sock, soup_address_get_name (priv->remote_addr), cancellable);
-}
-	
-/**
- * soup_socket_start_proxy_ssl:
- * @sock: the socket
- * @ssl_host: hostname of the SSL server
- * @cancellable: a #GCancellable
- *
- * Starts using SSL on @socket, expecting to find a host named
- * @ssl_host.
- *
- * Return value: success or failure
- **/
-gboolean
-soup_socket_start_proxy_ssl (SoupSocket *sock, const char *ssl_host,
-			     GCancellable *cancellable)
+static gboolean
+soup_socket_setup_ssl (SoupSocket    *sock,
+		       const char    *ssl_host,
+		       GCancellable  *cancellable,
+		       GError       **error)
 {
 	SoupSocketPrivate *priv = SOUP_SOCKET_GET_PRIVATE (sock);
 	GTlsBackend *backend = g_tls_backend_get_default ();
@@ -1074,7 +1117,7 @@ soup_socket_start_proxy_ssl (SoupSocket *sock, const char *ssl_host,
 	if (G_IS_TLS_CONNECTION (priv->conn))
 		return TRUE;
 
-	if (g_cancellable_is_cancelled (cancellable))
+	if (g_cancellable_set_error_if_cancelled (cancellable, error))
 		return FALSE;
 
 	priv->ssl = TRUE;
@@ -1085,7 +1128,7 @@ soup_socket_start_proxy_ssl (SoupSocket *sock, const char *ssl_host,
 
 		identity = g_network_address_new (ssl_host, 0);
 		conn = g_initable_new (g_tls_backend_get_client_connection_type (backend),
-				       NULL, NULL,
+				       cancellable, error,
 				       "base-io-stream", priv->conn,
 				       "server-identity", identity,
 				       "database", priv->ssl_creds,
@@ -1109,7 +1152,7 @@ soup_socket_start_proxy_ssl (SoupSocket *sock, const char *ssl_host,
 		GTlsServerConnection *conn;
 
 		conn = g_initable_new (g_tls_backend_get_server_connection_type (backend),
-				       NULL, NULL,
+				       cancellable, error,
 				       "base-io-stream", priv->conn,
 				       "certificate", priv->ssl_creds,
 				       "use-system-certdb", FALSE,
@@ -1134,76 +1177,103 @@ soup_socket_start_proxy_ssl (SoupSocket *sock, const char *ssl_host,
 
 	return TRUE;
 }
-	
-guint
-soup_socket_handshake_sync (SoupSocket    *sock,
-			    GCancellable  *cancellable)
+
+/**
+ * soup_socket_start_ssl:
+ * @sock: the socket
+ * @cancellable: a #GCancellable
+ *
+ * Starts using SSL on @socket.
+ *
+ * Return value: success or failure
+ **/
+gboolean
+soup_socket_start_ssl (SoupSocket *sock, GCancellable *cancellable)
 {
 	SoupSocketPrivate *priv = SOUP_SOCKET_GET_PRIVATE (sock);
-	GError *error = NULL;
 
-	priv->ssl = TRUE;
-	if (g_tls_connection_handshake (G_TLS_CONNECTION (priv->conn),
-					cancellable, &error))
-		return SOUP_STATUS_OK;
-	else if (!priv->ssl_fallback &&
-		 g_error_matches (error, G_TLS_ERROR, G_TLS_ERROR_NOT_TLS)) {
-		g_error_free (error);
-		return SOUP_STATUS_TLS_FAILED;
-	} else {
-		g_error_free (error);
-		return SOUP_STATUS_SSL_FAILED;
-	}
+	return soup_socket_setup_ssl (sock, soup_address_get_name (priv->remote_addr),
+				      cancellable, NULL);
+}
+	
+/**
+ * soup_socket_start_proxy_ssl:
+ * @sock: the socket
+ * @ssl_host: hostname of the SSL server
+ * @cancellable: a #GCancellable
+ *
+ * Starts using SSL on @socket, expecting to find a host named
+ * @ssl_host.
+ *
+ * Return value: success or failure
+ **/
+gboolean
+soup_socket_start_proxy_ssl (SoupSocket *sock, const char *ssl_host,
+			     GCancellable *cancellable)
+{
+	return soup_socket_setup_ssl (sock, ssl_host, cancellable, NULL);
+}
+
+gboolean
+soup_socket_handshake_sync (SoupSocket    *sock,
+			    const char    *ssl_host,
+			    GCancellable  *cancellable,
+			    GError       **error)
+{
+	SoupSocketPrivate *priv = SOUP_SOCKET_GET_PRIVATE (sock);
+
+	if (!soup_socket_setup_ssl (sock, ssl_host, cancellable, error))
+		return FALSE;
+
+	return g_tls_connection_handshake (G_TLS_CONNECTION (priv->conn),
+					   cancellable, error);
 }
 
 static void
 handshake_async_ready (GObject *source, GAsyncResult *result, gpointer user_data)
 {
-	SoupSocketAsyncConnectData *data = user_data;
-	SoupSocketPrivate *priv = SOUP_SOCKET_GET_PRIVATE (data->sock);
+	GTask *task = user_data;
 	GError *error = NULL;
-	guint status;
-
-	if (priv->async_context && !priv->use_thread_context)
-		g_main_context_pop_thread_default (priv->async_context);
 
 	if (g_tls_connection_handshake_finish (G_TLS_CONNECTION (source),
 					       result, &error))
-		status = SOUP_STATUS_OK;
-	else if (!priv->ssl_fallback &&
-		 g_error_matches (error, G_TLS_ERROR, G_TLS_ERROR_NOT_TLS))
-		status = SOUP_STATUS_TLS_FAILED;
+		g_task_return_boolean (task, TRUE);
 	else
-		status = SOUP_STATUS_SSL_FAILED;
-	g_clear_error (&error);
-
-	data->callback (data->sock, status, data->user_data);
-	g_object_unref (data->sock);
-	g_slice_free (SoupSocketAsyncConnectData, data);
+		g_task_return_error (task, error);
+	g_object_unref (task);
 }
 
 void
-soup_socket_handshake_async (SoupSocket         *sock,
-			     GCancellable       *cancellable,
-			     SoupSocketCallback  callback,
-			     gpointer            user_data)
+soup_socket_handshake_async (SoupSocket          *sock,
+			     const char          *ssl_host,
+			     GCancellable        *cancellable,
+			     GAsyncReadyCallback  callback,
+			     gpointer             user_data)
 {
 	SoupSocketPrivate *priv = SOUP_SOCKET_GET_PRIVATE (sock);
-	SoupSocketAsyncConnectData *data;
+	GTask *task;
+	GError *error = NULL;
 
-	priv->ssl = TRUE;
+	task = g_task_new (sock, cancellable, callback, user_data);
 
-	data = g_slice_new (SoupSocketAsyncConnectData);
-	data->sock = g_object_ref (sock);
-	data->callback = callback;
-	data->user_data = user_data;
+	if (!soup_socket_setup_ssl (sock, ssl_host, cancellable, &error)) {
+		g_task_return_error (task, error);
+		g_object_unref (task);
+		return;
+	}
 
-	if (priv->async_context && !priv->use_thread_context)
-		g_main_context_push_thread_default (priv->async_context);
 	g_tls_connection_handshake_async (G_TLS_CONNECTION (priv->conn),
 					  G_PRIORITY_DEFAULT,
 					  cancellable, handshake_async_ready,
-					  data);
+					  task);
+}
+
+gboolean
+soup_socket_handshake_finish (SoupSocket    *sock,
+			      GAsyncResult  *result,
+			      GError       **error)
+{
+	return g_task_propagate_boolean (G_TASK (result), error);
 }
 
 /**
@@ -1400,18 +1470,24 @@ soup_socket_get_http_proxy_uri (SoupSocket *sock)
 	SoupSocketPrivate *priv = SOUP_SOCKET_GET_PRIVATE (sock);
 	GSocketAddress *addr;
 	GProxyAddress *paddr;
+	SoupURI *uri;
 
 	if (!priv->gsock)
 		return NULL;
 	addr = g_socket_get_remote_address (priv->gsock, NULL);
-	if (!addr || !G_IS_PROXY_ADDRESS (addr))
+	if (!addr || !G_IS_PROXY_ADDRESS (addr)) {
+		if (addr)
+			g_object_unref (addr);
 		return NULL;
+	}
 
 	paddr = G_PROXY_ADDRESS (addr);
 	if (strcmp (g_proxy_address_get_protocol (paddr), "http") != 0)
 		return NULL;
 
-	return soup_uri_new (g_proxy_address_get_uri (paddr));
+	uri = soup_uri_new (g_proxy_address_get_uri (paddr));
+	g_object_unref (addr);
+	return uri;
 }
 
 static gboolean

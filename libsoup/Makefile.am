@@ -8,7 +8,7 @@ if OS_WIN32
 LIBWS2_32 = -lws2_32
 endif
 
-INCLUDES = 				\
+AM_CPPFLAGS = 				\
 	-DG_LOG_DOMAIN=\"libsoup\" 	\
 	-DLOCALEDIR=\"$(localedir)\"	\
 	-I$(top_srcdir)			\
@@ -142,8 +142,6 @@ libsoup_2_4_la_SOURCES =		\
 	soup-io-stream.h		\
 	soup-io-stream.c		\
 	soup-logger.c			\
-	soup-marshal.h			\
-	soup-marshal.c			\
 	soup-message.c			\
 	soup-message-body.c		\
 	soup-message-client-io.c	\
@@ -163,8 +161,8 @@ libsoup_2_4_la_SOURCES =		\
 	soup-path-map.c     		\
 	soup-proxy-resolver.c		\
 	soup-proxy-resolver-default.c	\
-	soup-proxy-resolver-static.h	\
-	soup-proxy-resolver-static.c	\
+	soup-proxy-resolver-wrapper.h	\
+	soup-proxy-resolver-wrapper.c	\
 	soup-proxy-uri-resolver.c	\
 	soup-request.c			\
 	soup-request-data.c		\
@@ -226,13 +224,11 @@ libsoup_gnome_2_4_la_SOURCES =		\
 
 endif
 
-GLIB_GENERATED = soup-marshal.c soup-marshal.h
-GLIB_GENERATED += soup-enum-types.c soup-enum-types.h
+GLIB_GENERATED = soup-enum-types.c soup-enum-types.h
 BUILT_SOURCES = \
 	$(GLIB_GENERATED)   \
 	tld_data.inc
 
-soup_marshal_sources = $(libsoup_2_4_la_SOURCES) $(libsoup_gnome_2_4_la_SOURCES)
 soup_enum_types_sources = $(libsoupinclude_HEADERS) $(libsoupgnomeinclude_HEADERS)
 soup_enum_types_MKENUMS_C_FLAGS = --fhead "\#define LIBSOUP_USE_UNSTABLE_REQUEST_API"
 
@@ -248,13 +244,13 @@ if HAVE_INTROSPECTION
 
 # Core library
 gi_soup_files = \
-	$(filter-out soup.h soup-enum-types.% soup-marshal.% soup-proxy-resolver.h,\
+	$(filter-out soup.h soup-enum-types.% soup-proxy-resolver.h,\
 	   $(soup_headers) $(filter-out %.h, $(libsoup_2_4_la_SOURCES)))
 gi_built_soup_files = soup-enum-types.h
 
 Soup-2.4.gir: libsoup-2.4.la
 Soup_2_4_gir_INCLUDES = Gio-2.0
-Soup_2_4_gir_CFLAGS = $(INCLUDES) -DLIBSOUP_USE_UNSTABLE_REQUEST_API
+Soup_2_4_gir_CFLAGS = $(AM_CPPFLAGS) -DLIBSOUP_USE_UNSTABLE_REQUEST_API
 Soup_2_4_gir_LIBS = libsoup-2.4.la
 Soup_2_4_gir_EXPORT_PACKAGES = libsoup-2.4
 Soup_2_4_gir_SCANNERFLAGS = --c-include "libsoup/soup.h"
@@ -279,7 +275,7 @@ SoupGNOME_2_4_gir_SCANNERFLAGS =			\
 	--symbol-prefix=soup				\
 	--c-include "libsoup/soup-gnome.h"		\
 	--include-uninstalled=$(builddir)/Soup-2.4.gir
-SoupGNOME_2_4_gir_CFLAGS = $(INCLUDES)
+SoupGNOME_2_4_gir_CFLAGS = $(AM_CPPFLAGS)
 SoupGNOME_2_4_gir_LIBS = libsoup-gnome-2.4.la libsoup-2.4.la
 SoupGNOME_2_4_gir_FILES = $(addprefix $(srcdir)/,$(gi_soup_gnome_files))
 SoupGNOME_2_4_gir_EXPORT_PACKAGES = libsoup-gnome-2.4

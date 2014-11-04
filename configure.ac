@@ -3,13 +3,14 @@ dnl *** Initialize automake and set version ***
 dnl *******************************************
 
 m4_define([soup_major_version], [2])
-m4_define([soup_minor_version], [43])
+m4_define([soup_minor_version], [46])
 m4_define([soup_micro_version], [0])
 
 AC_PREREQ(2.63)
 AC_INIT([libsoup],[soup_major_version.soup_minor_version.soup_micro_version],[http://bugzilla.gnome.org/enter_bug.cgi?product=libsoup])
 AC_CONFIG_SRCDIR([libsoup-2.4.pc.in])
 AC_CONFIG_MACRO_DIR([m4])
+AC_CONFIG_AUX_DIR([build-aux])
 
 AM_INIT_AUTOMAKE([1.11 foreign no-dist-gzip dist-xz -Wno-portability])
 m4_ifdef([AM_SILENT_RULES],[AM_SILENT_RULES([yes])],)
@@ -27,10 +28,10 @@ SOUP_API_VERSION=2.4
 AC_SUBST(SOUP_API_VERSION)
 
 # Increment on interface addition. Reset on removal.
-SOUP_AGE=6
+SOUP_AGE=7
 
 # Increment on interface add, remove, or change.
-SOUP_CURRENT=7
+SOUP_CURRENT=8
 
 # Increment on source change. Reset when CURRENT changes.
 SOUP_REVISION=0
@@ -77,15 +78,17 @@ dnl ***********************
 dnl *** Checks for glib ***
 dnl ***********************
 
-GLIB_REQUIRED=2.36.0
+GLIB_REQUIRED=2.38.0
 AM_PATH_GLIB_2_0($GLIB_REQUIRED,,,gobject gio)
 if test "$GLIB_LIBS" = ""; then
    AC_MSG_ERROR(GLIB $GLIB_REQUIRED or later is required to build libsoup)
 fi
-GLIB_CFLAGS="$GLIB_CFLAGS -DGLIB_VERSION_MIN_REQUIRED=GLIB_VERSION_2_36"
+GLIB_CFLAGS="$GLIB_CFLAGS -DGLIB_VERSION_MIN_REQUIRED=GLIB_VERSION_2_38"
 
 GLIB_MAKEFILE='$(top_srcdir)/Makefile.glib'
 AC_SUBST(GLIB_MAKEFILE)
+
+GLIB_TESTS
 
 PKG_CHECK_MODULES(XML, libxml-2.0)
 AC_SUBST(XML_CFLAGS)
@@ -181,11 +184,6 @@ dnl ******************************
 dnl *** Stuff for regression tests
 dnl ******************************
 AC_MSG_NOTICE([checking for programs needed for regression tests])
-MISSING_REGRESSION_TEST_PACKAGES=""
-
-if test "$have_glib_networking" = "no"; then
-        MISSING_REGRESSION_TEST_PACKAGES="$MISSING_REGRESSION_TEST_PACKAGES glib-networking"
-fi
 
 AC_ARG_WITH(apache-httpd,
 	    AS_HELP_STRING([--with-apache-httpd], [Path to apache httpd (for tests)]),
@@ -253,16 +251,8 @@ if test "$APACHE_HTTPD" != "no" -a -n "$APACHE_MODULE_DIR" -a -n "$APACHE_SSL_MO
         AC_DEFINE(HAVE_APACHE_2_4, 1, [Apache is 2.4.x])
     fi
     have_apache=1
-    if test -z "$APACHE_PHP_MODULE_DIR"; then
-        MISSING_REGRESSION_TEST_PACKAGES="$MISSING_REGRESSION_TEST_PACKAGES mod_php5"
-    fi
 else
     have_apache=0
-    if test "$APACHE_HTTPD" = "no" -o -z "$APACHE_MODULE_DIR"; then
-        MISSING_REGRESSION_TEST_PACKAGES="$MISSING_REGRESSION_TEST_PACKAGES apache"
-    else
-        MISSING_REGRESSION_TEST_PACKAGES="$MISSING_REGRESSION_TEST_PACKAGES mod_ssl"
-    fi
 fi
 AM_CONDITIONAL(HAVE_APACHE, test "$have_apache" = 1)
 AM_CONDITIONAL(HAVE_APACHE_2_2, test "$apache_version" = 2.2)
@@ -278,7 +268,6 @@ if test "$have_apache" = 1; then
     else
 	have_php=no
 	IF_HAVE_PHP="\#"
-	MISSING_REGRESSION_TEST_PACKAGES="$MISSING_REGRESSION_TEST_PACKAGES php5"
     fi
     AC_MSG_RESULT($have_php)
     AC_SUBST(IF_HAVE_PHP)
@@ -287,7 +276,6 @@ if test "$have_apache" = 1; then
 	AC_MSG_CHECKING([for php-xmlrpc])
 	if $PHP --rf xmlrpc_server_create | grep -q "does not exist"; then
 	    have_php_xmlrpc=no
-	    MISSING_REGRESSION_TEST_PACKAGES="$MISSING_REGRESSION_TEST_PACKAGES php-xmlrpc"
 	else
 	    have_php_xmlrpc=yes
 	    AC_DEFINE(HAVE_PHP_XMLRPC, 1, [Have php-xmlrpc])
@@ -299,12 +287,7 @@ fi
 AC_PATH_PROG(CURL, curl, no)
 if test "$CURL" != no; then
     AC_DEFINE(HAVE_CURL, 1, [Whether or not curl can be used for tests])
-else
-    MISSING_REGRESSION_TEST_PACKAGES="$MISSING_REGRESSION_TEST_PACKAGES curl"
 fi
-
-AC_SUBST(MISSING_REGRESSION_TEST_PACKAGES)
-AM_CONDITIONAL(MISSING_REGRESSION_TEST_PACKAGES, test -n "$MISSING_REGRESSION_TEST_PACKAGES")
 
 dnl **********************************************************
 dnl *** path of NTLM single-sign-on helper ntlm_auth
@@ -319,8 +302,6 @@ if test "$ntlm_auth" != "no"; then
 	dnl --with-ntlm-auth (without path) used, use default path
 	ntlm_auth="/usr/bin/ntlm_auth"
     fi
-else
-    MISSING_REGRESSION_TEST_PACKAGES="$MISSING_REGRESSION_TEST_PACKAGES ntlm_auth"
 fi
 AC_SUBST(ntlm_auth)
 AC_DEFINE_UNQUOTED(NTLM_AUTH, "$ntlm_auth", [Samba's 'winbind' daemon helper 'ntlm_auth' which can be used for NTLM single-sign-on])
@@ -339,6 +320,7 @@ if test "$GCC" = "yes" -a "$set_more_warnings" != "no"; then
 		-Wall -Wstrict-prototypes -Werror=missing-prototypes \
 		-Werror=implicit-function-declaration \
 		-Werror=pointer-arith -Werror=init-self -Werror=format=2 \
+		-Wno-format-zero-length \
 		-Werror=missing-include-dirs -Werror=aggregate-return \
 		-Werror=declaration-after-statement"
 fi
@@ -363,10 +345,3 @@ AC_CONFIG_FILES([
 	libsoup/soup-version.h
 	])
 AC_OUTPUT
-
-if test -n "$MISSING_REGRESSION_TEST_PACKAGES"; then
-    echo ""
-    echo Some regression tests will not be run due to missing packages:
-    echo $MISSING_REGRESSION_TEST_PACKAGES
-    echo ""
-fi
