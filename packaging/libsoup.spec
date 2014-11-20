@@ -1,7 +1,7 @@
 %bcond_with gnome
 
 Name:           libsoup
-Version:        2.42.2
+Version:        2.46.0
 Release:        0
 License:        LGPL-2.1+
 Summary:        HTTP client/server library for GNOME
@@ -49,7 +49,7 @@ This package provides the GObject Introspection bindings for libsoup.
 
 %package devel
 Summary:        HTTP client/server library for GNOME - Development Files
-Group:          Development/Gnome
+Group:          Social & Content/GNOME
 Requires:       %{name} = %{version}
 %if %{with gnome}
 Requires:       typelib-Soup = %{version}
@@ -73,6 +73,7 @@ Features:
 cp %{SOURCE1001} .
 
 %build
+chmod +x autogen.sh
 %autogen\
 %if %{with gnome}
     --with-gnome \
