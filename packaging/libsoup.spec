@@ -19,11 +19,11 @@ BuildRequires:  gobject-introspection-devel
 %endif
 %if %{with gnome}
 BuildRequires:  pkgconfig(gnome-keyring-1)
+BuildRequires:  gnome-common
 %endif
 BuildRequires:  intltool >= 0.35.0
 BuildRequires:  sqlite3-devel
 BuildRequires:  pkgconfig(glib-2.0) >= 2.35.0
-BuildRequires:  gnome-common
 BuildRequires:  pkgconfig(libxml-2.0)
 
 
