@@ -4,6 +4,9 @@
  *
  * Copyright (C) 2000-2003, Ximian, Inc.
  */
+#ifdef HAVE_CONFIG_H
+#include <config.h>
+#endif
 
 #include <string.h>
 
@@ -11,6 +14,43 @@
 #include "soup.h"
 #include "soup-connection.h"
 #include "soup-message-private.h"
+#include "TIZEN.h"
+
+#if ENABLE(TIZEN_PERFORMANCE_TEST_LOG)
+#include <sys/prctl.h>
+#ifndef PR_TASK_PERF_USER_TRACE
+#define PR_TASK_PERF_USER_TRACE 666
+#define MAX_STRING_LEN 256
+#endif
+
+#define MAX_STRING_LEN 256
+
+static void prctl_with_url(const char *prestr, const char *url)
+{
+	char s[MAX_STRING_LEN] = "";
+	int len_max = 120;
+	int len_pre = strlen(prestr);
+	int len_url = strlen(url);
+
+	strncpy(s, prestr, len_pre);
+	if(len_pre + len_url < len_max) {
+		strncpy(s+len_pre, url, len_url);
+	}
+	else {
+		int len_part = len_max - len_pre - 10;
+		strncpy(s+len_pre, url, len_part);
+		strncpy(s+len_pre+len_part, "...", MAX_STRING_LEN-len_pre-len_part-1);
+		strncpy(s+len_pre+len_part+3, url+len_url-7, 7);
+	}
+	prctl(PR_TASK_PERF_USER_TRACE, s, strlen(s));
+}
+
+static void prctl_with_url_and_free(const char *prestr, char *url)
+{
+	prctl_with_url(prestr, url);
+	g_free(url);
+}
+#endif
 
 /**
  * SECTION:soup-message
@@ -111,8 +151,17 @@ enum {
 
 	RESTARTED,
 	FINISHED,
+#if ENABLE(TIZEN_ON_AUTHENTICATION_REQUESTED)
+	AUTHENTICATE,
+#endif
 
 	NETWORK_EVENT,
+#if ENABLE(TIZEN_TV_DYNAMIC_CERTIFICATE_LOADING)
+	DYNAMIC_CERTIFICATEPATH,
+#endif
+#if ENABLE(TIZEN_TV_CERTIFICATE_HANDLING)
+	ACCEPT_CERTIFICATE,
+#endif
 
 	LAST_SIGNAL
 };
@@ -665,6 +714,51 @@ soup_message_class_init (SoupMessageClass *message_class)
 			      G_TYPE_SOCKET_CLIENT_EVENT,
 			      G_TYPE_IO_STREAM);
 
+#if ENABLE(TIZEN_TV_DYNAMIC_CERTIFICATE_LOADING)
+	signals[DYNAMIC_CERTIFICATEPATH] =
+		g_signal_new ("dynamic-certificatePath",
+			      G_OBJECT_CLASS_TYPE (object_class),
+			      G_SIGNAL_RUN_LAST,
+			      0,
+			      NULL, NULL,
+			      NULL,
+			      G_TYPE_POINTER, 1,
+			      G_TYPE_POINTER);
+#endif
+	/**
+	 * SoupMessage::accept-certificate:
+	 * @msg: the message
+	 * @certificate: the certificate
+	 * @error: the kind of the certificate errors
+	 *
+	 * Since: webengine2014
+	 **/
+#if ENABLE(TIZEN_TV_CERTIFICATE_HANDLING)
+	signals[ACCEPT_CERTIFICATE] =
+		g_signal_new ("accept_certificate",
+			      G_OBJECT_CLASS_TYPE (object_class),
+			      G_SIGNAL_RUN_LAST,
+			      0,
+			      NULL, NULL,
+			      NULL,
+			      G_TYPE_BOOLEAN, 2,
+			      G_TYPE_TLS_CERTIFICATE,
+			      G_TYPE_TLS_CERTIFICATE_FLAGS);
+#endif
+
+#if ENABLE(TIZEN_ON_AUTHENTICATION_REQUESTED)
+	signals[AUTHENTICATE] =
+		g_signal_new ("authenticate",
+			      G_OBJECT_CLASS_TYPE (object_class),
+			      G_SIGNAL_RUN_FIRST,
+			      G_STRUCT_OFFSET (SoupMessageClass, authenticate),
+			      NULL, NULL,
+			      NULL,
+			      G_TYPE_NONE, 2,
+			      SOUP_TYPE_AUTH,
+			      G_TYPE_BOOLEAN);
+#endif
+
 	/* properties */
 	/**
 	 * SOUP_MESSAGE_METHOD:
@@ -1138,6 +1232,9 @@ soup_message_restarted (SoupMessage *msg)
 void
 soup_message_finished (SoupMessage *msg)
 {
+#if ENABLE(TIZEN_PERFORMANCE_TEST_LOG)
+	prctl_with_url_and_free("[EVT] soup_msg_fin : ", soup_uri_to_string(soup_message_get_uri(msg), FALSE));
+#endif
 	g_signal_emit (msg, signals[FINISHED], 0);
 }
 
@@ -1149,6 +1246,51 @@ soup_message_network_event (SoupMessage         *msg,
 	g_signal_emit (msg, signals[NETWORK_EVENT], 0,
 		       event, connection);
 }
+
+#if ENABLE(TIZEN_TV_DYNAMIC_CERTIFICATE_LOADING)
+const char*
+soup_message_dynamic_client_certificate (SoupMessage         *msg,
+					 const char* current_host)
+{
+	const char* get_certpath = NULL;
+
+	g_signal_emit (msg, signals[DYNAMIC_CERTIFICATEPATH], 0,
+		       current_host, &get_certpath);
+	return get_certpath;
+}
+#endif
+
+#if ENABLE(TIZEN_TV_CERTIFICATE_HANDLING)
+gboolean
+soup_message_accept_certificate (SoupMessage         *msg,
+				 GTlsCertificate* certificate,
+				 GTlsCertificateFlags errors)
+{
+	gboolean accept = TRUE;
+#if ENABLE(TIZEN_DLOG)
+	char *uri = soup_uri_to_string(soup_message_get_uri(msg), FALSE);
+
+	TIZEN_LOGI("[Accept-Certificate] Certificate error URL: %s", uri);
+#endif
+	g_signal_emit (msg, signals[ACCEPT_CERTIFICATE], 0,
+		       certificate, errors, &accept);
+
+#if ENABLE(TIZEN_DLOG)
+	if (uri)
+		g_free (uri);
+#endif
+
+	return accept;
+}
+#endif
+
+#if ENABLE(TIZEN_ON_AUTHENTICATION_REQUESTED)
+void
+soup_message_authenticate (SoupMessage *msg, SoupAuth *auth, gboolean retrying)
+{
+	g_signal_emit (msg, signals[AUTHENTICATE], 0, auth, retrying);
+}
+#endif
 
 static void
 header_handler_free (gpointer header_name, GClosure *closure)
@@ -1888,6 +2030,15 @@ soup_message_set_https_status (SoupMessage *msg, SoupConnection *conn)
 			      SOUP_SOCKET_TLS_CERTIFICATE, &certificate,
 			      SOUP_SOCKET_TLS_ERRORS, &errors,
 			      NULL);
+
+#if ENABLE(TIZEN_CERTIFICATE_FILE_SET)
+	if (errors && soup_message_is_from_session_restore (msg)) {
+		TIZEN_LOGD ("msg[%p] errors[%d]", msg, errors);
+		errors = 0;
+		TIZEN_LOGD ("msg[%p] changed errors[%d]", msg, errors);
+	}
+#endif
+
 		g_object_set (msg,
 			      SOUP_MESSAGE_TLS_CERTIFICATE, certificate,
 			      SOUP_MESSAGE_TLS_ERRORS, errors,
@@ -2069,3 +2220,24 @@ soup_message_get_priority (SoupMessage *msg)
 
 	return SOUP_MESSAGE_GET_PRIVATE (msg)->priority;
 }
+
+#if ENABLE(TIZEN_CERTIFICATE_FILE_SET)
+gboolean soup_message_is_from_session_restore (SoupMessage *msg)
+{
+	char *target_field = "Cache-Control";
+	char *target_value = "max-stale=86400";
+	char *value = NULL;
+
+	if (!msg)
+		return FALSE;
+
+	// This criteria to decide session restore can be changed according to WebKit.
+	value = soup_message_headers_get (msg->request_headers, target_field);
+	if (value && !strcmp (value, target_value)) {
+		TIZEN_LOGD ("msg[%p] return TRUE", msg);
+		return TRUE;
+	}
+
+	return FALSE;
+}
+#endif

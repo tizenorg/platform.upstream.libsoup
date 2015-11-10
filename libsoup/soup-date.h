@@ -61,7 +61,8 @@ time_t    soup_date_to_time_t       (SoupDate       *date);
 SOUP_AVAILABLE_IN_2_24
 void      soup_date_to_timeval      (SoupDate       *date,
 				     GTimeVal       *time);
-
+SOUP_AVAILABLE_IN_2_24
+void      soup_date_set_timeOffset  (double          timeOffset);
 SOUP_AVAILABLE_IN_2_24
 gboolean  soup_date_is_past         (SoupDate       *date);
 

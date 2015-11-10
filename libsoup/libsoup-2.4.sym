@@ -94,6 +94,7 @@ soup_connection_state_get_type
 soup_content_decoder_get_type
 soup_content_sniffer_get_buffer_size
 soup_content_sniffer_get_type
+soup_content_mime_sniff_set
 soup_content_sniffer_new
 soup_content_sniffer_sniff
 soup_cookie_applies_to_uri
@@ -163,6 +164,7 @@ soup_date_new
 soup_date_new_from_now
 soup_date_new_from_string
 soup_date_new_from_time_t
+soup_date_set_timeOffset
 soup_date_to_string
 soup_date_to_time_t
 soup_date_to_timeval
@@ -378,6 +380,7 @@ soup_session_new
 soup_session_new_with_options
 soup_session_pause_message
 soup_session_prefetch_dns
+soup_session_create_idle_connection
 soup_session_prepare_for_uri
 soup_session_queue_message
 soup_session_redirect_message
@@ -508,3 +511,4 @@ _SOUP_URI_SCHEME_FTP
 _SOUP_URI_SCHEME_HTTP
 _SOUP_URI_SCHEME_HTTPS
 _SOUP_URI_SCHEME_RESOURCE
+soupTimeOffset

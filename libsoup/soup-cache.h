@@ -96,6 +96,11 @@ void       soup_cache_set_max_size (SoupCache     *cache,
 SOUP_AVAILABLE_IN_2_34
 guint      soup_cache_get_max_size (SoupCache     *cache);
 
+//#if ENABLE (TIZEN_UPDATE_CACHE_ENTRY_CONTENT_TYPE_HEADER)
+void       soup_cache_entry_set_content_type (SoupSession     *session,
+                                              SoupMessage     *msg,
+                                              const char      *content_type);
+//#endif
 G_END_DECLS
 
 #endif /* SOUP_CACHE_H */

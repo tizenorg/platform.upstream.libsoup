@@ -14,6 +14,42 @@
 #include "soup-message-queue.h"
 #include "soup-misc-private.h"
 
+#include "TIZEN.h"
+
+#if ENABLE(TIZEN_PERFORMANCE_TEST_LOG)
+#include <sys/prctl.h>
+#ifndef PR_TASK_PERF_USER_TRACE
+#define PR_TASK_PERF_USER_TRACE 666
+#endif
+#define MAX_STRING_LEN 256
+
+static void prctl_with_url(const char *prestr, const char *url)
+{
+	char s[MAX_STRING_LEN] = "";
+	int len_max = 120;
+	int len_pre = strlen(prestr);
+	int len_url = strlen(url);
+
+	strncpy(s, prestr, len_pre);
+	if(len_pre + len_url < len_max) {
+		strncpy(s+len_pre, url, len_url);
+	}
+	else {
+		int len_part = len_max - len_pre - 10;
+		strncpy(s+len_pre, url, len_part);
+		strncpy(s+len_pre+len_part, "...", MAX_STRING_LEN-len_pre-len_part-1);
+		strncpy(s+len_pre+len_part+3, url+len_url-7, 7);
+	}
+	prctl(PR_TASK_PERF_USER_TRACE, s, strlen(s));
+}
+
+static void prctl_with_url_and_free(const char *prestr, char *url)
+{
+	prctl_with_url(prestr, url);
+	g_free(url);
+}
+#endif
+
 typedef struct {
 	SoupSocket  *socket;
 
@@ -32,6 +68,13 @@ typedef struct {
 	guint        io_timeout, idle_timeout;
 	GSource     *idle_timeout_src;
 	gboolean     reusable;
+#if ENABLE(TIZEN_TV_CREATE_IDLE_TCP_CONNECTION)
+	SoupMessageQueueItem *cur_item;
+#endif
+
+#if ENABLE(TIZEN_TV_CLIENT_CERTIFICATE)
+	gboolean     widget_engine;
+#endif
 } SoupConnectionPrivate;
 #define SOUP_CONNECTION_GET_PRIVATE(o) (G_TYPE_INSTANCE_GET_PRIVATE ((o), SOUP_TYPE_CONNECTION, SoupConnectionPrivate))
 
@@ -40,6 +83,12 @@ G_DEFINE_TYPE (SoupConnection, soup_connection, G_TYPE_OBJECT)
 enum {
 	EVENT,
 	DISCONNECTED,
+#if ENABLE(TIZEN_TV_DYNAMIC_CERTIFICATE_LOADING)
+	DYNAMIC_CERTIFICATEPATH,
+#endif
+#if ENABLE(TIZEN_TV_CERTIFICATE_HANDLING)
+	ACCEPT_CERTIFICATE,
+#endif
 	LAST_SIGNAL
 };
 
@@ -60,11 +109,18 @@ enum {
 	PROP_TIMEOUT,
 	PROP_IDLE_TIMEOUT,
 	PROP_STATE,
+#if ENABLE(TIZEN_TV_CLIENT_CERTIFICATE)
+	PROP_WIDGET_ENGINE,
+#endif
 
 	LAST_PROP
 };
 
 static void stop_idle_timer (SoupConnectionPrivate *priv);
+
+#if ENABLE(TIZEN_TV_CREATE_IDLE_TCP_CONNECTION)
+static void clear_current_item (SoupConnection *conn);
+#endif
 
 /* Number of seconds after which we close a connection that hasn't yet
  * been used.
@@ -99,6 +155,11 @@ soup_connection_dispose (GObject *object)
 
 	stop_idle_timer (priv);
 
+#if ENABLE(TIZEN_TV_CREATE_IDLE_TCP_CONNECTION)
+	if (priv->cur_item) {
+		clear_current_item (conn);
+	}
+#endif
 	if (priv->socket) {
 		g_warning ("Disposing connection while connected");
 		soup_connection_disconnect (conn);
@@ -154,6 +215,11 @@ soup_connection_set_property (GObject *object, guint prop_id,
 	case PROP_STATE:
 		soup_connection_set_state (SOUP_CONNECTION (object), g_value_get_uint (value));
 		break;
+#if ENABLE(TIZEN_TV_CLIENT_CERTIFICATE)
+	case PROP_WIDGET_ENGINE:
+		priv->widget_engine = g_value_get_boolean (value);
+		break;
+#endif
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
 		break;
@@ -200,6 +266,11 @@ soup_connection_get_property (GObject *object, guint prop_id,
 	case PROP_STATE:
 		g_value_set_enum (value, priv->state);
 		break;
+#if ENABLE(TIZEN_TV_CLIENT_CERTIFICATE)
+	case PROP_WIDGET_ENGINE:
+		g_value_set_boolean (value, priv->widget_engine);
+		break;
+#endif
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
 		break;
@@ -238,6 +309,30 @@ soup_connection_class_init (SoupConnectionClass *connection_class)
 			      NULL, NULL,
 			      NULL,
 			      G_TYPE_NONE, 0);
+#if ENABLE(TIZEN_TV_CERTIFICATE_HANDLING)
+	signals[ACCEPT_CERTIFICATE] =
+		g_signal_new ("accept-certificate",
+			      G_OBJECT_CLASS_TYPE (object_class),
+			      G_SIGNAL_RUN_LAST,
+			      0,
+			      NULL, NULL,
+			      NULL,
+			      G_TYPE_BOOLEAN, 2,
+			      G_TYPE_TLS_CERTIFICATE,
+			      G_TYPE_TLS_CERTIFICATE_FLAGS);
+#endif
+
+#if ENABLE(TIZEN_TV_DYNAMIC_CERTIFICATE_LOADING)
+	signals[DYNAMIC_CERTIFICATEPATH] =
+		g_signal_new ("dynamic-certificatePath",
+			      G_OBJECT_CLASS_TYPE (object_class),
+			      G_SIGNAL_RUN_LAST,
+			      0,
+			      NULL, NULL,
+			      NULL,
+			      G_TYPE_POINTER, 1,
+			      G_TYPE_POINTER);
+#endif
 
 	/* properties */
 	g_object_class_install_property (
@@ -323,6 +418,15 @@ soup_connection_class_init (SoupConnectionClass *connection_class)
 				   "Current state of connection",
 				   SOUP_TYPE_CONNECTION_STATE, SOUP_CONNECTION_NEW,
 				   G_PARAM_READWRITE));
+#if ENABLE(TIZEN_TV_CLIENT_CERTIFICATE)
+	g_object_class_install_property (
+		object_class, PROP_WIDGET_ENGINE,
+		g_param_spec_boolean (SOUP_CONNECTION_WIDGET_ENGINE,
+				      "widget engine",
+				      "Whether or not to be running Widget Engine",
+				      FALSE,
+				      G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY));
+#endif
 }
 
 static void
@@ -338,6 +442,38 @@ soup_connection_event (SoupConnection      *conn,
 	g_signal_emit (conn, signals[EVENT], 0,
 		       event, connection);
 }
+
+#if ENABLE(TIZEN_TV_DYNAMIC_CERTIFICATE_LOADING)
+static const char*
+soup_connection_dynamic_client_certificate (SoupSocket *sock,
+					    const char* current_host,
+					    gpointer user_data)
+{
+	SoupConnection* conn = user_data;
+	const char* get_certpath = NULL;
+
+	g_signal_emit (conn, signals[DYNAMIC_CERTIFICATEPATH], 0,
+		       current_host, &get_certpath);
+
+	return get_certpath;
+}
+#endif
+#if ENABLE(TIZEN_TV_CERTIFICATE_HANDLING)
+static gboolean
+soup_connection_accept_certificate (SoupSocket *sock,
+				    GTlsCertificate* certificate,
+				    GTlsCertificateFlags errors,
+				    gpointer user_data)
+{
+	SoupConnection* conn = user_data;
+	gboolean accept = FALSE;
+
+	g_signal_emit (conn, signals[ACCEPT_CERTIFICATE], 0,
+		       certificate, errors, &accept);
+
+	return accept;
+}
+#endif
 
 static gboolean
 idle_timeout (gpointer conn)
@@ -400,6 +536,73 @@ clear_current_msg (SoupConnection *conn)
 	g_signal_handlers_disconnect_by_func (msg, G_CALLBACK (current_msg_got_body), conn);
 	g_object_unref (msg);
 }
+
+#if ENABLE(TIZEN_TV_CREATE_IDLE_TCP_CONNECTION)
+gboolean
+soup_connection_has_current_item (SoupConnection *conn)
+{
+	SoupConnectionPrivate *priv = SOUP_CONNECTION_GET_PRIVATE (conn);
+
+	if (priv)
+		return (priv->cur_item == NULL) ? FALSE : TRUE;
+	else
+		return FALSE;
+}
+
+SoupMessageQueueItem *
+soup_connection_get_current_item (SoupConnection *conn)
+{
+	SoupConnectionPrivate *priv = SOUP_CONNECTION_GET_PRIVATE (conn);
+
+	if (priv)
+		return priv->cur_item;
+	else
+		return NULL;
+}
+
+static void
+clear_current_item (SoupConnection *conn)
+{
+	SoupConnectionPrivate *priv = SOUP_CONNECTION_GET_PRIVATE (conn);
+
+	g_return_if_fail (priv != NULL);
+
+	g_object_freeze_notify (G_OBJECT (conn));
+	if (priv->cur_item)
+		priv->cur_item = NULL;
+}
+
+static void
+set_current_item (SoupConnection *conn, SoupMessageQueueItem *item)
+{
+	SoupConnectionPrivate *priv = SOUP_CONNECTION_GET_PRIVATE (conn);
+
+	g_return_if_fail (priv != NULL);
+
+	priv->cur_item = item;
+}
+
+
+
+/* soup_connection_set_current_item() sets only item, and does not change any state.
+ * That is what this function is different from set_current_item() above. */
+void
+soup_connection_set_current_item (SoupConnection *conn, SoupMessageQueueItem *item)
+{
+	SoupConnectionPrivate *priv = SOUP_CONNECTION_GET_PRIVATE (conn);
+
+	g_return_if_fail (priv != NULL);
+	g_return_if_fail (priv->cur_item == NULL);
+
+	g_object_freeze_notify (G_OBJECT (conn));
+
+	stop_idle_timer (priv);
+
+	priv->cur_item = item;
+
+	g_object_thaw_notify (G_OBJECT (conn));
+}
+#endif
 
 static void
 set_current_msg (SoupConnection *conn, SoupMessage *msg)
@@ -551,12 +754,23 @@ soup_connection_connect_async (SoupConnection      *conn,
 				 SOUP_SOCKET_TIMEOUT, priv->io_timeout,
 				 SOUP_SOCKET_CLEAN_DISPOSE, TRUE,
 				 SOUP_SOCKET_LOCAL_ADDRESS, priv->local_addr,
+#if ENABLE(TIZEN_TV_CLIENT_CERTIFICATE)
+				 SOUP_SOCKET_WIDGET_ENGINE, priv->widget_engine,
+#endif
 				 NULL);
 	g_object_unref (remote_addr);
 
 	g_signal_connect (priv->socket, "event",
 			  G_CALLBACK (re_emit_socket_event), conn);
+#if ENABLE(TIZEN_TV_CERTIFICATE_HANDLING)
+	g_signal_connect (priv->socket, "accept-certificate",
+			  G_CALLBACK (soup_connection_accept_certificate), conn);
+#endif
 
+#if ENABLE(TIZEN_TV_DYNAMIC_CERTIFICATE_LOADING)
+	g_signal_connect (priv->socket, "dynamic-certificatePath",
+				  G_CALLBACK (soup_connection_dynamic_client_certificate), conn);
+#endif
 	if (priv->async_context && !priv->use_thread_context)
 		g_main_context_push_thread_default (priv->async_context);
 	task = g_task_new (conn, cancellable, callback, user_data);
@@ -607,11 +821,19 @@ soup_connection_connect_sync (SoupConnection  *conn,
 				 SOUP_SOCKET_TIMEOUT, priv->io_timeout,
 				 SOUP_SOCKET_CLEAN_DISPOSE, TRUE,
 				 SOUP_SOCKET_LOCAL_ADDRESS, priv->local_addr,
+#if ENABLE(TIZEN_TV_CLIENT_CERTIFICATE)
+				 SOUP_SOCKET_WIDGET_ENGINE, priv->widget_engine,
+#endif
 				 NULL);
 	g_object_unref (remote_addr);
 
 	event_id = g_signal_connect (priv->socket, "event",
 				     G_CALLBACK (re_emit_socket_event), conn);
+#if ENABLE(TIZEN_TV_CERTIFICATE_HANDLING)
+	g_signal_connect (priv->socket, "accept-certificate",
+			  G_CALLBACK (soup_connection_accept_certificate), conn);
+#endif
+
 	if (!soup_socket_connect_sync_internal (priv->socket, cancellable, error)) {
 		success = FALSE;
 		goto done;
@@ -696,6 +918,9 @@ start_ssl_completed (GObject *object, GAsyncResult *result, gpointer user_data)
 		soup_connection_event (conn, G_SOCKET_CLIENT_TLS_HANDSHAKED, NULL);
 		soup_connection_event (conn, G_SOCKET_CLIENT_COMPLETE, NULL);
 		g_task_return_boolean (task, TRUE);
+#if ENABLE(TIZEN_PERFORMANCE_TEST_LOG)
+		prctl_with_url_and_free("[EVT] soup handshake complete : ", soup_uri_to_string(soup_connection_get_remote_uri(conn), FALSE));
+#endif
 	} else
 		g_task_return_error (task, error);
 	g_object_unref (task);
@@ -831,6 +1056,9 @@ soup_connection_set_state (SoupConnection *conn, SoupConnectionState state)
 	if (priv->current_msg) {
 		g_warn_if_fail (state == SOUP_CONNECTION_IDLE ||
 				state == SOUP_CONNECTION_DISCONNECTED);
+#if ENABLE(TIZEN_TV_CREATE_IDLE_TCP_CONNECTION)
+		clear_current_item (conn);
+#endif
 		clear_current_msg (conn);
 	}
 
@@ -877,10 +1105,31 @@ soup_connection_send_request (SoupConnection          *conn,
 	g_return_if_fail (priv->state != SOUP_CONNECTION_NEW &&
 			  priv->state != SOUP_CONNECTION_DISCONNECTED);
 
+#if ENABLE(TIZEN_TV_CREATE_IDLE_TCP_CONNECTION)
+	set_current_item (conn, item);
+	set_current_msg (conn, item->msg);
+#else
 	if (item->msg != priv->current_msg)
 		set_current_msg (conn, item->msg);
 	else
 		priv->reusable = FALSE;
+#endif
 
 	soup_message_send_request (item, completion_cb, user_data);
 }
+
+#if ENABLE(TIZEN_TV_CREATE_IDLE_TCP_CONNECTION)
+void
+soup_connection_set_pre_connect_idle (SoupConnection *conn)
+{
+	SoupConnectionPrivate *priv = NULL;
+
+	g_return_val_if_fail (SOUP_IS_CONNECTION (conn), FALSE);
+	priv = SOUP_CONNECTION_GET_PRIVATE (conn);
+
+	if (priv) {
+		if (priv->state == SOUP_CONNECTION_IN_USE)
+			priv->state = SOUP_CONNECTION_IDLE;
+	}
+}
+#endif

@@ -21,8 +21,48 @@
 #include "soup-message-queue.h"
 #include "soup-proxy-resolver-wrapper.h"
 #include "soup-session-private.h"
+#include "TIZEN.h"
+
+#if ENABLE(TIZEN_PERFORMANCE_TEST_LOG)
+#include <sys/prctl.h>
+#ifndef PR_TASK_PERF_USER_TRACE
+#define PR_TASK_PERF_USER_TRACE 666
+#endif
+
+#define MAX_STRING_LEN 256
+#define HWCLOCK_LOG(s)	{const char *str=s; prctl(PR_TASK_PERF_USER_TRACE, str, strlen(str));}
+
+static void prctl_with_url(const char *prestr, const char *url)
+{
+	char s[MAX_STRING_LEN] = "";
+	int len_max = 120;
+	int len_pre = strlen(prestr);
+	int len_url = strlen(url);
+
+	strncpy(s, prestr, len_pre);
+	if(len_pre + len_url < len_max) {
+		strncpy(s+len_pre, url, len_url);
+	}
+	else {
+		int len_part = len_max - len_pre - 10;
+		strncpy(s+len_pre, url, len_part );
+		strncpy(s+len_pre+len_part, "...", MAX_STRING_LEN-len_pre-len_part-1);
+		strncpy(s+len_pre+len_part+3, url+len_url-7, 7);
+	}
+	prctl(PR_TASK_PERF_USER_TRACE, s, strlen(s));
+}
+
+static void prctl_with_url_and_free(const char *prestr, char *url)
+{
+	prctl_with_url(prestr, url);
+	g_free(url);
+}
+#endif
 
 #define HOST_KEEP_ALIVE 5 * 60 * 1000 /* 5 min in msecs */
+#if ENABLE(TIZEN_CERTIFICATE_FILE_SET)
+#define SET_TLS_CERT_FILE_TIMEOUT 7 * 1000 /* msecs */
+#endif
 
 /**
  * SECTION:soup-session
@@ -127,7 +167,13 @@ typedef struct {
 	SoupURI *proxy_uri;
 
 	char **http_aliases, **https_aliases;
-
+#if ENABLE(TIZEN_CERTIFICATE_FILE_SET)
+	GSource *tls_idle_timeout_src;
+	char *certificate_path;
+#endif
+#if ENABLE(TIZEN_TV_CLIENT_CERTIFICATE)
+	gboolean widget_engine;
+#endif
 	GHashTable *request_types;
 } SoupSessionPrivate;
 #define SOUP_SESSION_GET_PRIVATE(o) (G_TYPE_INSTANCE_GET_PRIVATE ((o), SOUP_TYPE_SESSION, SoupSessionPrivate))
@@ -197,9 +243,23 @@ enum {
 	PROP_HTTP_ALIASES,
 	PROP_HTTPS_ALIASES,
 	PROP_LOCAL_ADDRESS,
+#if ENABLE(TIZEN_CERTIFICATE_FILE_SET)
+	PROP_CERTIFICATE_PATH,
+#endif
+#if ENABLE(TIZEN_TV_CLIENT_CERTIFICATE)
+	PROP_WIDGET_ENGINE,
+#endif
 
 	LAST_PROP
 };
+
+#if ENABLE(TIZEN_TV_FORCE_PRELOAD_TLSDB)
+// Preload TLS database. Allow to load the TLS database in background.
+static GTlsDatabase *_gTlsDB = NULL;
+static gchar *_gTlsDB_path = NULL;
+static GMutex _gTlsDB_lock;
+static void soup_preload_tls_database (const gchar *path);
+#endif
 
 static void
 soup_session_init (SoupSession *session)
@@ -246,6 +306,10 @@ soup_session_init (SoupSession *session)
 	priv->http_aliases = g_new (char *, 2);
 	priv->http_aliases[0] = (char *)g_intern_string ("*");
 	priv->http_aliases[1] = NULL;
+#if ENABLE(TIZEN_CERTIFICATE_FILE_SET)
+	priv->tls_idle_timeout_src = NULL;
+	priv->certificate_path = NULL;
+#endif
 
 	priv->request_types = g_hash_table_new (soup_str_case_hash,
 						soup_str_case_equal);
@@ -336,6 +400,11 @@ soup_session_finalize (GObject *object)
 	g_clear_object (&priv->tlsdb);
 	g_free (priv->ssl_ca_file);
 
+#if ENABLE(TIZEN_CERTIFICATE_FILE_SET)
+	soup_session_tls_stop_idle_timer (session);
+	g_free (priv->certificate_path);
+	priv->certificate_path = NULL;
+#endif
 	g_clear_pointer (&priv->async_context, g_main_context_unref);
 	g_clear_object (&priv->local_addr);
 
@@ -715,6 +784,32 @@ soup_session_set_property (GObject *object, guint prop_id,
 	case PROP_HTTPS_ALIASES:
 		set_aliases (&priv->https_aliases, g_value_get_boxed (value));
 		break;
+#if ENABLE(TIZEN_CERTIFICATE_FILE_SET)
+        case PROP_CERTIFICATE_PATH:
+		if (priv->certificate_path) {
+			g_free (priv->certificate_path);
+			priv->certificate_path = NULL;
+		}
+		if (g_value_get_string (value) && strlen (g_value_get_string (value)))
+			priv->certificate_path = g_strdup (g_value_get_string (value));
+#if ENABLE(TIZEN_DLOG)
+		TIZEN_LOGI ("set_property() PROP_CERTIFICATE_PATH priv->certificate_path is set");
+		TIZEN_LOGI ("set_property() PROP_CERTIFICATE_PATH priv->certificate_path is set [%s]", priv->certificate_path);
+#endif
+		if (priv->certificate_path)
+#if ENABLE(TIZEN_TV_FORCE_PRELOAD_TLSDB)
+			//Trigger loading of the TLS database. The load is done in a thread.
+			soup_preload_tls_database(priv->certificate_path);
+#else
+			soup_session_tls_start_idle_timer(session, SET_TLS_CERT_FILE_TIMEOUT);
+#endif
+		break;
+#endif
+#if ENABLE(TIZEN_TV_CLIENT_CERTIFICATE)
+	case PROP_WIDGET_ENGINE:
+		priv->widget_engine = g_value_get_boolean (value);
+		break;
+#endif
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
 		break;
@@ -818,6 +913,19 @@ soup_session_get_property (GObject *object, guint prop_id,
 	case PROP_HTTPS_ALIASES:
 		g_value_set_boxed (value, priv->https_aliases);
 		break;
+#if ENABLE(TIZEN_CERTIFICATE_FILE_SET)
+        case PROP_CERTIFICATE_PATH:
+#if ENABLE(TIZEN_DLOG)
+		TIZEN_LOGI ("get_property() PROP_CERTIFICATE_PATH");
+#endif
+		g_value_set_string (value, priv->certificate_path);
+		break;
+#endif
+#if ENABLE(TIZEN_TV_CLIENT_CERTIFICATE)
+	case PROP_WIDGET_ENGINE:
+		g_value_set_boolean (value, priv->widget_engine);
+		break;
+#endif
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
 		break;
@@ -1004,21 +1112,41 @@ auth_manager_authenticate (SoupAuthManager *manager, SoupMessage *msg,
 			   SoupAuth *auth, gboolean retrying,
 			   gpointer session)
 {
+#if ENABLE(TIZEN_ON_AUTHENTICATION_REQUESTED)
+	soup_message_authenticate(msg, auth, retrying);
+#endif
 	g_signal_emit (session, signals[AUTHENTICATE], 0, msg, auth, retrying);
 }
 
+#if ENABLE(TIZEN_HANDLING_307_REDIRECTION)
+#define SOUP_SESSION_WOULD_REDIRECT_AS_GET(session, msg) \
+	((msg)->status_code == SOUP_STATUS_SEE_OTHER || \
+	 ((msg)->status_code == SOUP_STATUS_FOUND && \
+	  !SOUP_METHOD_IS_SAFE ((msg)->method)) || \
+	((msg)->status_code == SOUP_STATUS_TEMPORARY_REDIRECT && \
+	 (msg)->method == SOUP_METHOD_GET) || \
+	((msg)->status_code == SOUP_STATUS_MOVED_PERMANENTLY && \
+	 (msg)->method == SOUP_METHOD_POST))
+#else
 #define SOUP_SESSION_WOULD_REDIRECT_AS_GET(session, msg) \
 	((msg)->status_code == SOUP_STATUS_SEE_OTHER || \
 	 ((msg)->status_code == SOUP_STATUS_FOUND && \
 	  !SOUP_METHOD_IS_SAFE ((msg)->method)) || \
 	 ((msg)->status_code == SOUP_STATUS_MOVED_PERMANENTLY && \
 	  (msg)->method == SOUP_METHOD_POST))
+#endif
 
 #define SOUP_SESSION_WOULD_REDIRECT_AS_SAFE(session, msg) \
 	(((msg)->status_code == SOUP_STATUS_MOVED_PERMANENTLY || \
 	  (msg)->status_code == SOUP_STATUS_TEMPORARY_REDIRECT || \
 	  (msg)->status_code == SOUP_STATUS_FOUND) && \
 	 SOUP_METHOD_IS_SAFE ((msg)->method))
+
+#if ENABLE(TIZEN_HANDLING_307_REDIRECTION)
+#define SOUP_SESSION_WOULD_REDIRECT_AS_POST(session, msg) \
+	((msg)->status_code == SOUP_STATUS_TEMPORARY_REDIRECT && \
+	 (msg)->method == SOUP_METHOD_POST)
+#endif
 
 static inline SoupURI *
 redirection_uri (SoupMessage *msg)
@@ -1061,7 +1189,11 @@ soup_session_would_redirect (SoupSession *session, SoupMessage *msg)
 
 	/* It must have an appropriate status code and method */
 	if (!SOUP_SESSION_WOULD_REDIRECT_AS_GET (session, msg) &&
-	    !SOUP_SESSION_WOULD_REDIRECT_AS_SAFE (session, msg))
+	    !SOUP_SESSION_WOULD_REDIRECT_AS_SAFE (session, msg)
+#if ENABLE(TIZEN_HANDLING_307_REDIRECTION)
+	    && !SOUP_SESSION_WOULD_REDIRECT_AS_POST (session, msg)
+#endif
+	)
 		return FALSE;
 
 	/* and a Location header that parses to an http URI */
@@ -1167,6 +1299,31 @@ re_emit_connection_event (SoupConnection      *conn,
 	soup_message_network_event (item->msg, event, connection);
 }
 
+#if ENABLE(TIZEN_TV_DYNAMIC_CERTIFICATE_LOADING)
+const char*
+re_emit_connection_dynamic_client_certificate (SoupConnection      *conn,
+                                               const char* current_host,
+                                               gpointer user_data)
+{
+        SoupMessageQueueItem *item = user_data;
+
+        return soup_message_dynamic_client_certificate(item->msg, current_host);
+}
+#endif
+
+#if ENABLE(TIZEN_TV_CERTIFICATE_HANDLING)
+gboolean
+re_emit_connection_accept_certificate (SoupConnection      *conn,
+					GTlsCertificate* certificate,
+					GTlsCertificateFlags errors,
+					gpointer             user_data)
+{
+	SoupMessageQueueItem *item = user_data;
+
+	return soup_message_accept_certificate(item->msg, certificate, errors);
+}
+#endif
+
 static void
 soup_session_set_item_connection (SoupSession          *session,
 				  SoupMessageQueueItem *item,
@@ -1184,6 +1341,16 @@ soup_session_set_item_connection (SoupSession          *session,
 		g_object_ref (item->conn);
 		g_signal_connect (item->conn, "event",
 				  G_CALLBACK (re_emit_connection_event), item);
+#if ENABLE(TIZEN_TV_DYNAMIC_CERTIFICATE_LOADING)
+		if (item->msg->method != SOUP_METHOD_CONNECT)
+			g_signal_connect (item->conn, "dynamic-certificatePath",
+					  G_CALLBACK (re_emit_connection_dynamic_client_certificate), item);
+#endif
+#if ENABLE(TIZEN_TV_CERTIFICATE_HANDLING)
+		if (item->msg->method != SOUP_METHOD_CONNECT)
+			g_signal_connect (item->conn, "accept-certificate",
+					  G_CALLBACK (re_emit_connection_accept_certificate), item);
+#endif
 	}
 }
 
@@ -1744,17 +1911,37 @@ get_connection_for_host (SoupSession *session,
 		conn = conns->data;
 
 		if (!need_new_connection && soup_connection_get_state (conn) == SOUP_CONNECTION_IDLE) {
+#if ENABLE(TIZEN_TV_CREATE_IDLE_TCP_CONNECTION)
+			soup_connection_set_current_item (conns->data, item);
+#endif
 			soup_connection_set_state (conn, SOUP_CONNECTION_IN_USE);
 			return conn;
 		} else if (soup_connection_get_state (conn) == SOUP_CONNECTION_CONNECTING)
+#if ENABLE(TIZEN_TV_CREATE_IDLE_TCP_CONNECTION)
+		{
+			if (!soup_connection_has_current_item (conns->data)) {
+				soup_connection_set_current_item (conns->data, item);
+				g_mutex_unlock (&priv->conn_lock);
+				item->conn = g_object_ref (conns->data);
+				return item->conn;
+			} else {
+#endif
 			num_pending++;
+#if ENABLE(TIZEN_TV_CREATE_IDLE_TCP_CONNECTION)
+			}
+		}
+#endif
 	}
 
 	/* Limit the number of pending connections; num_messages / 2
 	 * is somewhat arbitrary...
 	 */
+#if ENABLE(TIZEN_UNLIMITED_PENDING_CONNECTIONS)
+	/* FIXME: What should we do here exactly? */
+#else
 	if (num_pending > host->num_messages / 2)
 		return NULL;
+#endif
 
 	if (host->num_conns >= priv->max_conns_per_host) {
 		if (need_new_connection)
@@ -1776,6 +1963,9 @@ get_connection_for_host (SoupSession *session,
 		SOUP_CONNECTION_PROXY_RESOLVER, proxy_resolver,
 		SOUP_CONNECTION_SSL, soup_uri_is_https (soup_message_get_uri (item->msg), priv->https_aliases),
 		SOUP_CONNECTION_SSL_CREDENTIALS, tlsdb,
+#if ENABLE(TIZEN_TV_CLIENT_CERTIFICATE)
+		SOUP_CONNECTION_WIDGET_ENGINE, priv->widget_engine,
+#endif
 		SOUP_CONNECTION_SSL_STRICT, priv->ssl_strict && (tlsdb != NULL || SOUP_IS_PLAIN_SESSION (session)),
 		SOUP_CONNECTION_ASYNC_CONTEXT, priv->async_context,
 		SOUP_CONNECTION_USE_THREAD_CONTEXT, priv->use_thread_context,
@@ -1809,6 +1999,9 @@ get_connection_for_host (SoupSession *session,
 		host->keep_alive_src = NULL;
 	}
 
+#if ENABLE(TIZEN_TV_CREATE_IDLE_TCP_CONNECTION)
+	soup_connection_set_current_item (conn, item);
+#endif
 	return conn;
 }
 
@@ -1859,6 +2052,14 @@ get_connection (SoupMessageQueueItem *item, gboolean *should_cleanup)
 
 	soup_session_set_item_connection (session, item, conn);
 
+#if ENABLE(TIZEN_TV_CREATE_IDLE_TCP_CONNECTION)
+	if (soup_connection_get_state (item->conn) == SOUP_CONNECTION_CONNECTING) {
+		item->state = SOUP_MESSAGE_CONNECTING;
+		soup_message_queue_item_ref (item);
+		return TRUE;
+	}
+#endif
+
 	if (soup_connection_get_state (item->conn) != SOUP_CONNECTION_NEW) {
 		item->state = SOUP_MESSAGE_READY;
 		soup_message_set_https_status (item->msg, item->conn);
@@ -1896,6 +2097,14 @@ soup_session_process_queue_item (SoupSession          *session,
 
 		switch (item->state) {
 		case SOUP_MESSAGE_STARTING:
+#if ENABLE(TIZEN_CERTIFICATE_FILE_SET)
+			if(soup_uri_get_scheme(soup_message_get_uri(item->msg)) == SOUP_URI_SCHEME_HTTPS){
+				if (!soup_session_is_tls_db_initialized (session) && !soup_message_is_from_session_restore (item->msg)) {
+					soup_session_tls_stop_idle_timer(session);
+					soup_session_set_certificate_file(session);
+				}
+			}
+#endif
 			if (!get_connection (item, should_cleanup))
 				return;
 			break;
@@ -2888,6 +3097,97 @@ soup_session_get_feature_for_message (SoupSession *session, GType feature_type,
 	return feature;
 }
 
+#if ENABLE(TIZEN_CERTIFICATE_FILE_SET)
+
+#if ENABLE(TIZEN_TV_FORCE_PRELOAD_TLSDB)
+/**
+ * TLS database preloader thread.
+ **/
+static gpointer
+_preload_tlsdb_thread (gpointer p)
+{
+	GError* error = NULL;
+
+	g_mutex_lock (&_gTlsDB_lock);
+	TIZEN_LOGI("Create new tls database by using thread.");
+	g_assert (_gTlsDB_path);
+	_gTlsDB = g_tls_file_database_new (_gTlsDB_path, &error);
+	g_mutex_unlock (&_gTlsDB_lock);
+
+	return NULL;
+}
+
+/**
+ * Launch the TLS database preloader thread for a specified path.
+ * This is a one-time function.
+ **/
+static void
+soup_preload_tls_database (const gchar *path)
+{
+	g_mutex_lock (&_gTlsDB_lock);
+	//_gTlsDB_path is set only once. It prevent to create thread repeatedly.
+	//So keep the value of _gTlsDB_path.
+	if (!_gTlsDB_path) {
+		_gTlsDB_path = g_strdup (path);
+		if (_gTlsDB_path)
+			g_thread_new ("TLS Preloader", _preload_tlsdb_thread, NULL);
+	}
+	g_mutex_unlock (&_gTlsDB_lock);
+}
+#endif
+
+void soup_session_set_certificate_file(SoupSession *session)
+{
+	SoupSessionPrivate *priv = SOUP_SESSION_GET_PRIVATE (session);
+
+	TIZEN_LOGI ("");
+
+	if (!priv->certificate_path) {
+		TIZEN_LOGI("priv->certificate_path is NULL, return!!");
+		return;
+	}
+
+	if (!priv->tlsdb) {
+
+		GError* error = NULL;
+		GTlsDatabase* tlsdb = NULL;
+
+#if ENABLE(TIZEN_TV_FORCE_PRELOAD_TLSDB)
+		TIZEN_LOGI("Begin to handle TLS database.");
+		g_mutex_lock (&_gTlsDB_lock);
+		//Check whether certificate_path is the same as the path used by pre-load TLS DB.
+		if ((_gTlsDB) && (!g_strcmp0(_gTlsDB_path, priv->certificate_path))) {
+			TIZEN_LOGI("Use tls database which is created by thread.");
+			tlsdb = g_object_ref(_gTlsDB); // Take a reference to the global DB.
+			_gTlsDB = NULL;
+		} else {
+			tlsdb = g_tls_file_database_new (priv->certificate_path, &error);
+		}
+		g_mutex_unlock (&_gTlsDB_lock);
+#else
+		TIZEN_LOGI ("g_tls_file_database_new() is called. START");
+		tlsdb = g_tls_file_database_new(priv->certificate_path, &error);
+		TIZEN_LOGI ("g_tls_file_database_new() is called. END");
+		TIZEN_LOGI ("g_tls_file_database_new() is called. [%s]", priv->certificate_path);
+#endif
+
+		if (!error && tlsdb) {
+#if ENABLE(TIZEN_DLOG)
+			TIZEN_LOGI ("g_tls_file_database_new() is success. no error call set_tlsdb().");
+#endif
+			set_tlsdb (session, tlsdb);
+		}
+
+		if (tlsdb)
+			g_object_unref (tlsdb);
+		if (priv->certificate_path) {
+			g_free (priv->certificate_path);
+			priv->certificate_path = NULL;
+		}
+       }
+}
+#endif
+
 static void
 soup_session_class_init (SoupSessionClass *session_class)
 {
@@ -3711,6 +4011,42 @@ soup_session_class_init (SoupSessionClass *session_class)
 				     "Address of local end of socket",
 				     SOUP_TYPE_ADDRESS,
 				     G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY));
+
+#if ENABLE(TIZEN_CERTIFICATE_FILE_SET)
+	/**
+	 * SOUP_SESSION_CERTIFICATE_PATH
+	 * SoupSession:certificate-path:
+	 *
+	 * Set the certificate path for soup session
+	 *
+	 */
+	g_object_class_install_property (
+		object_class, PROP_CERTIFICATE_PATH,
+		g_param_spec_string (SOUP_SESSION_CERTIFICATE_PATH,
+				     "certificate file path",
+				     "Set the ca-certificate.crt file path",
+				     NULL,
+				     G_PARAM_READWRITE));
+#endif
+
+#if ENABLE(TIZEN_TV_CLIENT_CERTIFICATE)
+	/**
+	* SOUP_SESSION_USE_WIDGETENGINE:
+	*
+	* Alias for the #SoupSession:widget-engine property.
+	*
+	**/
+
+	g_object_class_install_property (
+		object_class, PROP_WIDGET_ENGINE,
+		g_param_spec_boolean (SOUP_SESSION_WIDGET_ENGINE,
+				"widget engine",
+				"Whether or not to be running Widget Engine",
+				FALSE,
+				G_PARAM_READWRITE));
+
+
+#endif
 }
 
 
@@ -4062,6 +4398,9 @@ async_respond_from_cache (SoupSession          *session,
 		GInputStream *stream;
 		GSource *source;
 
+#if ENABLE(TIZEN_PERFORMANCE_TEST_LOG)
+		prctl_with_url_and_free("[EVT] soup_use_cache1 (file cache) : ", soup_uri_to_string(soup_message_get_uri(item->msg), TRUE));
+#endif
 		stream = soup_cache_send_response (cache, item->msg);
 		if (!stream) {
 			/* Cached file was deleted? */
@@ -4080,6 +4419,9 @@ async_respond_from_cache (SoupSession          *session,
 		AsyncCacheCancelData *data;
 		gulong handler_id;
 
+#if ENABLE(TIZEN_PERFORMANCE_TEST_LOG)
+		prctl_with_url_and_free("[EVT] soup_use_cache2-1 (conditional) : ", soup_uri_to_string(soup_message_get_uri(item->msg), TRUE));
+#endif
 		conditional_msg = soup_cache_generate_conditional_request (cache, item->msg);
 		if (!conditional_msg)
 			return FALSE;
@@ -4099,8 +4441,12 @@ async_respond_from_cache (SoupSession          *session,
 
 
 		return TRUE;
-	} else
+	} else {
+#if ENABLE(TIZEN_PERFORMANCE_TEST_LOG)
+		prctl_with_url_and_free("[EVT] soup_cache_stale : ", soup_uri_to_string(soup_message_get_uri(item->msg), TRUE));
+#endif
 		return FALSE;
+	}
 }
 
 /**
@@ -4139,6 +4485,9 @@ soup_session_send_async (SoupSession         *session,
 {
 	SoupMessageQueueItem *item;
 	gboolean use_thread_context;
+#if ENABLE(TIZEN_TV_IMMEDIATE_REQUESTING)
+	gboolean should_prune = FALSE;
+#endif
 
 	g_return_if_fail (SOUP_IS_SESSION (session));
 	g_return_if_fail (!SOUP_IS_SESSION_SYNC (session));
@@ -4175,7 +4524,17 @@ soup_session_send_async (SoupSession         *session,
 	if (async_respond_from_cache (session, item))
 		item->state = SOUP_MESSAGE_CACHED;
 	else
+#if ENABLE(TIZEN_TV_IMMEDIATE_REQUESTING)
+	{
+		/* CONNECT messages are handled specially */
+		if (item->msg->method != SOUP_METHOD_CONNECT) {
+			soup_session_process_queue_item (session, item, &should_prune, TRUE);
+		}
+#endif
 		soup_session_kick_queue (session);
+#if ENABLE(TIZEN_TV_IMMEDIATE_REQUESTING)
+	}
+#endif
 }
 
 /**
@@ -4556,3 +4915,178 @@ soup_request_error_quark (void)
 		error = g_quark_from_static_string ("soup_request_error_quark");
 	return error;
 }
+
+#if ENABLE(TIZEN_CERTIFICATE_FILE_SET)
+static gboolean
+set_tls_certificate_file (gpointer session)
+{
+	TIZEN_LOGI("");
+	soup_session_set_certificate_file(session);
+
+	return FALSE;
+}
+
+void
+soup_session_tls_start_idle_timer (SoupSession *session, guint idle_timeout)
+{
+	SoupSessionPrivate *priv = SOUP_SESSION_GET_PRIVATE (session);
+
+	TIZEN_LOGI ("timeout[%d]", idle_timeout);
+	if (priv && idle_timeout > 0 && !priv->tls_idle_timeout_src) {
+		priv->tls_idle_timeout_src =
+			soup_add_timeout (priv->async_context,
+					  idle_timeout,
+					  set_tls_certificate_file, session);
+	}
+}
+
+void
+soup_session_tls_stop_idle_timer (SoupSession *session)
+{
+	SoupSessionPrivate *priv = SOUP_SESSION_GET_PRIVATE (session);
+
+	TIZEN_LOGI ("");
+	if (priv && priv->tls_idle_timeout_src) {
+		if (!g_source_is_destroyed (priv->tls_idle_timeout_src)) {
+			TIZEN_LOGI("g_source isn't NULL.");
+			/* Adding log to cross check if MainContext exists */
+			TIZEN_LOGE("GMainContext of priv->tls_idle_timeout_src"
+					" is %p", priv->async_context);
+			if(priv->async_context)
+				g_source_destroy (priv->tls_idle_timeout_src);
+		}
+		priv->tls_idle_timeout_src = NULL;
+	}
+}
+
+gboolean
+soup_session_is_tls_db_initialized (SoupSession *session)
+{
+	SoupSessionPrivate *priv = SOUP_SESSION_GET_PRIVATE (session);
+	if (priv && priv->tlsdb)
+		return TRUE;
+	return FALSE;
+}
+#endif
+
+#if ENABLE(TIZEN_TV_CREATE_IDLE_TCP_CONNECTION)
+
+static SoupConnection *
+get_pre_connection_with_uri (SoupSession *session, SoupURI *uri)
+{
+	SoupSessionPrivate *priv = SOUP_SESSION_GET_PRIVATE (session);
+	SoupConnection *conn = NULL;
+	SoupSessionHost *host = NULL;
+
+	if (!priv)
+		return NULL;
+
+	g_mutex_lock (&priv->conn_lock);
+	host = get_host_for_uri (session, uri);
+	if (host->num_conns >= priv->max_conns_per_host) {
+		g_mutex_unlock (&priv->conn_lock);
+		return NULL;
+	}
+
+	if (priv->num_conns >= priv->max_conns) {
+		g_mutex_unlock (&priv->conn_lock);
+		return NULL;
+	}
+
+	conn = g_object_new (
+		SOUP_TYPE_CONNECTION,
+		SOUP_CONNECTION_REMOTE_URI, host->uri,
+		SOUP_CONNECTION_PROXY_RESOLVER, get_proxy_resolver (session),
+		SOUP_CONNECTION_SSL, soup_uri_is_https (uri, priv->https_aliases),
+		SOUP_CONNECTION_SSL_CREDENTIALS, get_tls_database (session),
+		SOUP_CONNECTION_WIDGET_ENGINE, priv->widget_engine,
+		SOUP_CONNECTION_SSL_STRICT, priv->ssl_strict && (priv->tlsdb != NULL || SOUP_IS_PLAIN_SESSION (session)),
+		SOUP_CONNECTION_ASYNC_CONTEXT, priv->async_context,
+		SOUP_CONNECTION_USE_THREAD_CONTEXT, priv->use_thread_context,
+		SOUP_CONNECTION_TIMEOUT, priv->io_timeout,
+		SOUP_CONNECTION_IDLE_TIMEOUT, priv->idle_timeout,
+		SOUP_CONNECTION_SSL_FALLBACK, host->ssl_fallback,
+		SOUP_CONNECTION_LOCAL_ADDRESS, priv->local_addr,
+		NULL);
+
+	g_signal_connect (conn, "disconnected",
+			G_CALLBACK (connection_disconnected),
+			session);
+	g_signal_emit (session, signals[CONNECTION_CREATED], 0, conn);
+	priv->num_conns++;
+	host->num_conns++;
+	if (host->keep_alive_src) {
+		g_source_destroy (host->keep_alive_src);
+		g_source_unref (host->keep_alive_src);
+		host->keep_alive_src = NULL;
+	}
+	g_mutex_unlock (&priv->conn_lock);
+	return g_object_ref (conn);
+}
+
+static void
+got_pre_connection (GObject *object, GAsyncResult *result, gpointer user_data)
+{
+	SoupConnection *conn = SOUP_CONNECTION (object);
+	SoupSession *session = user_data;
+	SoupSessionPrivate *priv = SOUP_SESSION_GET_PRIVATE (session);
+	GError *error = NULL;
+	SoupSocket *sock = NULL;
+	SoupURI *uri = NULL;
+	SoupSessionHost *host = NULL;
+
+	soup_connection_connect_finish (conn, result, &error);
+	sock = soup_connection_get_socket (conn);
+	if (sock && soup_socket_is_ssl (sock)) {
+		GTlsCertificateFlags errors;
+		g_object_get (sock,
+			      SOUP_SOCKET_TLS_ERRORS,
+			      &errors,
+			      NULL);
+	}
+	if (!error && priv) {
+		g_mutex_lock (&priv->conn_lock);
+		soup_connection_set_pre_connect_idle (conn);
+		g_object_get (G_OBJECT (conn),
+			      SOUP_CONNECTION_REMOTE_URI,
+			      &uri,
+			      NULL);
+		host = get_host_for_uri (session, uri);
+		g_hash_table_insert (priv->conns, conn, host);
+		host->connections = g_slist_prepend (host->connections, conn);
+		soup_uri_free(uri);
+		g_mutex_unlock (&priv->conn_lock);
+	} else
+		soup_connection_disconnect (conn);
+
+}
+static gboolean
+pre_connection_accept_certificate (SoupConnection      *conn,
+			  GTlsCertificate* certificate,
+			  GTlsCertificateFlags errors,
+			  gpointer             user_data)
+{
+    SoupSession* session = (SoupSession*)user_data;
+    SoupSessionPrivate *priv = SOUP_SESSION_GET_PRIVATE (session);
+
+	if (!priv)
+		return FALSE;
+
+    if (priv->widget_engine)
+        return (errors & (G_TLS_CERTIFICATE_UNKNOWN_CA | G_TLS_CERTIFICATE_BAD_IDENTITY | G_TLS_CERTIFICATE_REVOKED | G_TLS_CERTIFICATE_INSECURE | G_TLS_CERTIFICATE_GENERIC_ERROR)) ? FALSE : TRUE;
+
+	return TRUE;
+}
+
+void soup_session_create_idle_connection(SoupSession *session, SoupURI* pre_uri)
+{
+	SoupConnection * pre_conn = NULL;
+	pre_conn = get_pre_connection_with_uri(session, pre_uri);
+
+	if (pre_conn) {
+		g_signal_connect (pre_conn, "accept-certificate",
+				  G_CALLBACK (pre_connection_accept_certificate), session);
+		soup_connection_connect_async(pre_conn, NULL, got_pre_connection, session);
+	}
+}
+#endif

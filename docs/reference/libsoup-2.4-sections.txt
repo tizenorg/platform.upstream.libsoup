@@ -419,6 +419,7 @@ soup_session_send_async
 soup_session_send_finish
 <SUBSECTION>
 soup_session_prefetch_dns
+soup_session_create_idle_connection
 soup_session_prepare_for_uri
 soup_session_abort
 <SUBSECTION>
@@ -708,6 +709,7 @@ soup_uri_get_type
 <TITLE>Soup Miscellaneous Utilities</TITLE>
 SoupDate
 SoupDateFormat
+soupTimeOffset
 soup_date_new
 soup_date_new_from_string
 soup_date_new_from_time_t
@@ -715,6 +717,7 @@ soup_date_new_from_now
 soup_date_to_string
 soup_date_to_time_t
 soup_date_to_timeval
+soup_date_set_timeOffset
 soup_date_is_past
 soup_date_get_day
 soup_date_get_hour
@@ -1031,6 +1034,7 @@ soup_cookie_jar_db_get_type
 SoupContentSniffer
 soup_content_sniffer_new
 soup_content_sniffer_sniff
+soup_content_mime_sniff_set
 soup_content_sniffer_get_buffer_size
 <SUBSECTION Standard>
 SOUP_CONTENT_SNIFFER

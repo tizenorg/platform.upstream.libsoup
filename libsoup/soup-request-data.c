@@ -30,6 +30,7 @@
 #include "soup-request-data.h"
 #include "soup.h"
 #include "soup-misc-private.h"
+#include "TIZEN.h"
 
 /**
  * SECTION:soup-request-data
@@ -89,7 +90,11 @@ soup_request_data_send (SoupRequest   *request,
 	comma = strchr (start, ',');
 	if (comma && comma != start) {
 		/* Deal with MIME type / params */
+#if ENABLE (TIZEN_DATA_URI_WITHOUT_MEDIA_TYPE)
+		if (comma >= start + BASE64_INDICATOR_LEN && !g_ascii_strncasecmp (comma - BASE64_INDICATOR_LEN, BASE64_INDICATOR, BASE64_INDICATOR_LEN)) {
+#else
 		if (comma > start + BASE64_INDICATOR_LEN && !g_ascii_strncasecmp (comma - BASE64_INDICATOR_LEN, BASE64_INDICATOR, BASE64_INDICATOR_LEN)) {
+#endif
 			end = comma - BASE64_INDICATOR_LEN;
 			base64 = TRUE;
 		} else

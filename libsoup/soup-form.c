@@ -13,6 +13,7 @@
 
 #include "soup-form.h"
 #include "soup.h"
+#include "TIZEN.h"
 
 /**
  * SECTION:soup-form
@@ -485,7 +486,11 @@ soup_form_request_new_from_multipart (const char *uri,
 	SoupMessage *msg;
 
 	msg = soup_message_new ("POST", uri);
-	soup_multipart_to_message (multipart, msg->request_headers,
+#if ENABLE(TIZEN_EXT)
+	if (msg)
+#endif
+		soup_multipart_to_message (multipart, msg->request_headers,
 				   msg->request_body);
+
 	return msg;
 }

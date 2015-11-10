@@ -21,6 +21,8 @@
 #include "soup-content-sniffer-stream.h"
 #include "soup-message-private.h"
 
+#include "TIZEN.h"
+
 /**
  * SECTION:soup-content-sniffer
  * @short_description: Content sniffing for SoupSession
@@ -483,6 +485,15 @@ static char byte_looks_binary[] = {
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  /* 0xF0 - 0xFF */
 };
 
+#if ENABLE(TIZEN_TV_DISABLE_MIME_SNIFF)
+gboolean soup_Disable_Mime_Sniff = FALSE;
+void
+soup_content_mime_sniff_set (gboolean gDisableMimeSniff)
+{
+	soup_Disable_Mime_Sniff = gDisableMimeSniff;
+}
+#endif
+
 /* HTML5: 2.7.4 Content-Type sniffing: unknown type */
 static char*
 sniff_unknown (SoupContentSniffer *sniffer, SoupBuffer *buffer,
@@ -493,6 +504,11 @@ sniff_unknown (SoupContentSniffer *sniffer, SoupBuffer *buffer,
 	int resource_length = MIN (512, buffer->length);
 	int i;
 
+#if ENABLE(TIZEN_TV_DISABLE_MIME_SNIFF)
+	if (soup_Disable_Mime_Sniff && !sniff_scriptable){
+		return g_strdup ("text/plain");
+	}
+#endif
 	for (i = 0; i < G_N_ELEMENTS (types_table); i++) {
 		SoupContentSnifferPattern *type_row = &(types_table[i]);
 
@@ -569,7 +585,12 @@ sniff_unknown (SoupContentSniffer *sniffer, SoupBuffer *buffer,
 			return g_strdup ("application/octet-stream");
 	}
 
+#if ENABLE(TIZEN_TV_DISABLE_MIME_SNIFF)
+	/* Refer to Orsay's implementation, modify the default value from "text/plain" to "text/html". */
+	return g_strdup ("text/html");
+#else
 	return g_strdup ("text/plain");
+#endif
 }
 
 /* MIMESNIFF: 7.2 Sniffing a mislabeled binary resource */

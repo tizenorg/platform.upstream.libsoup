@@ -204,6 +204,300 @@ required at compile time), but you should be sure to add a runtime
 dependency on it.])
 fi
 
+dnl *************************
+dnl *** Tizen dlog support  ***
+dnl *************************
+
+AC_ARG_ENABLE(tizen-dlog,
+         AS_HELP_STRING([--disable-tizen-dlog], [Disable Tizen dlog support ]),
+         enable_tizen_dlog=no,
+         enable_tizen_dlog=yes)
+
+AC_MSG_CHECKING([for Tizen dlog])
+if test $enable_tizen_dlog != no;then
+	AC_DEFINE(ENABLE_TIZEN_DLOG, 1, [Add new feature, which prints logs via Tizen log system named dlog.])
+	PKG_CHECK_MODULES(TIZEN_DLOG, dlog)
+	AC_SUBST(TIZEN_DLOG_CFLAGS)
+	AC_SUBST(TIZEN_DLOG_LIBS)
+fi
+AC_MSG_RESULT($enable_tizen_dlog)
+
+AM_CONDITIONAL(TIZEN_DLOG, [test $enable_tizen_dlog = yes])
+
+dnl *************************
+dnl *** Tizen client certificate support  ***
+dnl *************************
+
+AC_ARG_ENABLE(tizen-client-certificate,
+	AS_HELP_STRING([--enable-tizen-client-certificate], [Enable Tizen client certificate support ]),        ,
+	enable_tizen_client_certificate=no)
+
+AC_MSG_CHECKING([for Tizen client certificate])
+if test $enable_tizen_client_certificate != no;then
+        AC_DEFINE(ENABLE_TIZEN_TV_CLIENT_CERTIFICATE, 1, [Add new feature, which implement HTTPS connection with client certificate feature])
+fi
+AC_MSG_RESULT($enable_tizen_client_certificate)
+
+AM_CONDITIONAL(TIZEN_TV_CLIENT_CERTIFICATE, [test $enable_tizen_client_certificate = yes])
+
+dnl *************************
+dnl *** Tizen certificate handling  ***
+dnl *************************
+
+AC_ARG_ENABLE(tizen-certificate-handling,
+	AS_HELP_STRING([--enable-tizen-certificate-handling], [Enable Support for certificate handling( support signal: ACCEPT_CERTIFICATE )]),        ,
+	enable_tizen_certificate_handling=no)
+
+AC_MSG_CHECKING([for Tizen certificate handling])
+if test $enable_tizen_certificate_handling != no;then
+	AC_DEFINE(ENABLE_TIZEN_TV_CERTIFICATE_HANDLING, 1, [Add new feature, which support for certificate handling( signal: ACCEPT_CERTIFICATE )])
+fi
+AC_MSG_RESULT($enable_tizen_certificate_handling)
+
+AM_CONDITIONAL(TIZEN_TV_CERTIFICATE_HANDLING, [test $enable_tizen_certificate_handling = yes])
+
+dnl ********************************************
+dnl *** Tizen support text storage of cookie ***
+dnl ********************************************
+
+AC_ARG_ENABLE(tizen-text-storage-mode-of-cookie,
+        AS_HELP_STRING([--enable-tizen-text-storage-mode-of-cookie], [Enable Tizen support text storage of cookie]),
+        ,
+        enable_tizen_text_storage_mode_of_cookie=no)
+
+AC_MSG_CHECKING([for Tizen support text storage of cookie])
+if test $enable_tizen_text_storage_mode_of_cookie != no;then
+        AC_DEFINE(ENABLE_TIZEN_TV_FIX_TEXT_STORAGE_MODE_OF_COOKIE, 1, [Fix document.cookie get/set cookie not working issue, in case of file:// protocol.])
+fi
+AC_MSG_RESULT($enable_tizen_text_storage_mode_of_cookie)
+
+AM_CONDITIONAL(ENABLE_TIZEN_TV_FIX_TEXT_STORAGE_MODE_OF_COOKIE, [test $enable_tizen_text_storage_mode_of_cookie = yes])
+
+dnl *******************************************************
+dnl *** Tizen support soup cache clean leaked resources ***
+dnl *******************************************************
+
+AC_ARG_ENABLE(tizen-soup-cache-clean-leaked-resources,
+	AS_HELP_STRING([--enable-tizen-soup-cache-clean-leaked-resources], [Enable Tizen soup cache clean leaked resources ]),        ,
+	enable_tizen_soup_cache_clean_leaked_resources=no)
+
+AC_MSG_CHECKING([for Tizen soup cache clean leaked resources])
+if test $enable_tizen_soup_cache_clean_leaked_resources != no;then
+        AC_DEFINE(ENABLE_TIZEN_TV_SOUP_CACHE_CLEAN_LEAKED_RESOURCES, 1, [Add new feature, which supports soup cache clean leaked resources])
+fi
+AC_MSG_RESULT($enable_tizen_soup_cache_clean_leaked_resources)
+
+AM_CONDITIONAL(TIZEN_TV_SOUP_CACHE_CLEAN_LEAKED_RESOURCES, [test $enable_tizen_soup_cache_clean_leaked_resources = yes])
+
+dnl *******************************************************
+dnl *** Tizen support soup cache optimise load time ***
+dnl *******************************************************
+
+AC_ARG_ENABLE(tizen-tv-soup-cache-optimise-load-time,
+	AS_HELP_STRING([--enable-tizen-tv-soup-cache-optimise-load-time], [Enable Tizen soup cache optimise load time ]),        ,
+	enable_tizen_tv_soup_cache_optimise_load_time=no)
+
+AC_MSG_CHECKING([for Tizen soup cache optimise load time])
+if test $enable_tizen_tv_soup_cache_optimise_load_time != no;then
+        AC_DEFINE(ENABLE_TIZEN_TV_SOUP_CACHE_OPTIMISE_LOAD_TIME, 1, [Add new feature, which supports soup cache optimised load time])
+fi
+AC_MSG_RESULT($enable_tizen_tv_soup_cache_optimise_load_time)
+
+AM_CONDITIONAL(TIZEN_TV_SOUP_CACHE_OPTIMISE_LOAD_TIME, [test $enable_tizen_tv_soup_cache_optimise_load_time = yes])
+
+dnl *************************************************************
+dnl *** Tizen doesn't cache video and audio resources on disk ***
+dnl *************************************************************
+
+AC_ARG_ENABLE(tizen-tv-no-cache-about-video-and-audio,
+    AS_HELP_STRING([--enable-tizen-tv-no-cache-about-video-and-audio], [Enable Tizen doesn't cache video and audio resources on disk]),
+    ,
+    enable_tizen_tv_no_cache_about_video_and_audio=no)
+
+AC_MSG_CHECKING([for Tizen doesn't cache video and audio])
+if test $enable_tizen_tv_no_cache_about_video_and_audio != no;then
+        AC_DEFINE(ENABLE_TIZEN_TV_NO_CACHE_ABOUT_VIDEO_AND_AUDIO, 1, [Add new feature, which doesn't cache video and audio resources on disk])
+fi
+AC_MSG_RESULT($enable_tizen_tv_no_cache_about_video_and_audio)
+
+AM_CONDITIONAL(TIZEN_TV_SOUP_CACHE_CLEAN_LEAKED_RESOURCES, [test $enable_tizen_soup_cache_clean_leaked_resources = yes])
+
+dnl *************************
+dnl *** Tizen use expanded response block ***
+dnl *************************
+
+AC_ARG_ENABLE(tizen-use-expanded-response-block,
+	AS_HELP_STRING([--enable-tizen-use-expanded-response-block], [Enable Tizen use expanded response block ]),	,
+	enable_tizen_use_expanded_response_block=no)
+
+AC_MSG_CHECKING([for Tizen use expanded response block])
+if test $enable_tizen_use_expanded_response_block != no;then
+	AC_DEFINE(ENABLE_TIZEN_USE_EXPANDED_RESPONSE_BLOCK, 1, [Add new feature, which implement HTTPS connection with client certificate feature])
+fi
+AC_MSG_RESULT($enable_tizen_use_expanded_response_block)
+
+AM_CONDITIONAL(TIZEN_USE_EXPANDED_RESPONSE_BLOCK, [test $enable_tizen_use_expanded_response_block = yes])
+
+dnl ***********************************************
+dnl *** Tizen support create idle tcp connection ***
+dnl ***********************************************
+
+AC_ARG_ENABLE(tizen-create-idle-tcp-connection,
+        AS_HELP_STRING([--enable-tizen-create-idle-tcp-connection], [Enable Tizen create idle tcp connection ]),        ,
+        enable_tizen_create_idle_tcp_connection=no)
+
+AC_MSG_CHECKING([for Tizen create idle tcp connection])
+if test $enable_tizen_create_idle_tcp_connection != no;then
+        AC_DEFINE(ENABLE_TIZEN_TV_CREATE_IDLE_TCP_CONNECTION, 1, [Add new feature, which supports Create Idle tcp connections for pre-connection])
+fi
+AC_MSG_RESULT($enable_tizen_create_idle_tcp_connection)
+
+AM_CONDITIONAL(TIZEN_TV_CREATE_IDLE_TCP_CONNECTION, [test $enable_tizen_create_idle_tcp_connection = yes])
+
+dnl *************************
+dnl *** Tizen disable mime  sniff  ***
+dnl *************************
+
+AC_ARG_ENABLE(tizen-disable-mime-sniff,
+        AS_HELP_STRING([--enable-tizen-disable-mime-sniff], [Enable Tizen disable mime  sniff support ]),        ,
+        enable_tizen_disable_mime_sniff=no)
+
+AC_MSG_CHECKING([for Tizen disable mime  sniff])
+if test $enable_tizen_disable_mime_sniff != no;then
+        AC_DEFINE(ENABLE_TIZEN_TV_DISABLE_MIME_SNIFF, 1, [Provide an interface for Webkit to disable MIME sniff when content-type is unknown.])
+fi
+AC_MSG_RESULT($enable_tizen_disable_mime_sniff)
+
+AM_CONDITIONAL(TIZEN_TV_DISABLE_MIME_SNIFF, [test $enable_tizen_disable_mime_sniff = yes])
+
+dnl ***********************************************
+dnl *** Tizen support soup immediate requesting ***
+dnl ***********************************************
+
+AC_ARG_ENABLE(tizen-immediate-requesting,
+	AS_HELP_STRING([--enable-tizen-immediate-requesting], [Enable Tizen soup immediate requesting ]),        ,
+	enable_tizen_immediate_requesting=no)
+
+AC_MSG_CHECKING([for Tizen soup immediate requesting])
+if test $enable_tizen_immediate_requesting != no;then
+        AC_DEFINE(ENABLE_TIZEN_TV_IMMEDIATE_REQUESTING, 1, [Add new feature, which supports soup immediate requesting])
+fi
+AC_MSG_RESULT($enable_tizen_immediate_requesting)
+
+AM_CONDITIONAL(TIZEN_TV_IMMEDIATE_REQUESTING, [test $enable_tizen_immediate_requesting = yes])
+
+dnl ***********************************************
+dnl *** Tizen support computing disk cache size ***
+dnl ***********************************************
+
+AC_ARG_ENABLE(tizen-computing-disk-cache-size,
+	AS_HELP_STRING([--enable-tizen-computing-disk-cache-size], [Enable Tizen computing disk cache size support ]),        ,
+	enable_tizen_computing_disk_cache_size=no)
+
+AC_MSG_CHECKING([for Tizen computing disk cache size])
+if test $enable_tizen_computing_disk_cache_size != no;then
+        AC_DEFINE(ENABLE_TIZEN_TV_COMPUTING_DISK_CACHE_SIZE, 1, [Add new feature, which supports entry length as disk cache size])
+fi
+AC_MSG_RESULT($enable_tizen_computing_disk_cache_size)
+
+AM_CONDITIONAL(TIZEN_TV_COMPUTING_DISK_CACHE_SIZE, [test $enable_tizen_computing_disk_cache_size = yes])
+
+dnl ***********************************************
+dnl *** Tizen support force preload tlsdb***
+dnl ***********************************************
+AC_ARG_ENABLE(tizen-tv-force-preload-tlsdb,
+        AS_HELP_STRING([--enable-tizen-tv-force-preload-tlsdb], [Enable Tizen force preload tlsdb ]),        ,
+        enable_tizen_tv_force_preload_tlsdb=no)
+
+AC_MSG_CHECKING([for Tizen force preload tlsdb])
+if test $enable_tizen_tv_force_preload_tlsdb != no;then
+        AC_DEFINE(ENABLE_TIZEN_TV_FORCE_PRELOAD_TLSDB, 1, [Add new feature, which supports to pre load TLS database])
+fi
+AC_MSG_RESULT($enable_tizen_tv_force_preload_tlsdb)
+
+AM_CONDITIONAL(TIZEN_TV_FORCE_PRELOAD_TLSDB, [test $enable_tizen_tv_force_preload_tlsdb = yes])
+
+dnl ****************************************
+dnl *** Tizen add x soup message headers ***
+dnl ****************************************
+
+AC_ARG_ENABLE(tizen-add-x-soup-message-headers,
+        AS_HELP_STRING([--enable-tizen-add-x-soup-message-headers], [Enable Tizen add X-From-Cache and X-Entry-Length soup message headers]),
+        ,
+        enable_tizen_add_x_soup_message_headers=no)
+
+AC_MSG_CHECKING([for Tizen support text storage of cookie])
+if test $enable_tizen_add_x_soup_message_headers != no;then
+        AC_DEFINE(ENABLE_TIZEN_TV_ADD_X_SOUP_MESSAGE_HEADERS, 1, [Add X-From-Cache and X-Entry-Length header.])
+fi
+AC_MSG_RESULT($enable_tizen_add_x_soup_message_headers)
+
+AM_CONDITIONAL(ENABLE_TIZEN_TV_ADD_X_SOUP_MESSAGE_HEADERS, [test $enable_tizen_add_x_soup_message_headers = yes])
+
+dnl ******************************************
+dnl *** Tizen dynamic certificate loading  ***
+dnl ******************************************
+
+AC_ARG_ENABLE(tizen-dynamic-certificate-loading,
+	AS_HELP_STRING([--enable-tizen-dynamic-certificate_loading], [Enable dynamic SSL Certificate loading support]),        ,
+	enable_tizen_dynamic_certificate_loading=no)
+
+AC_MSG_CHECKING([for Tizen dynamic certificate loading])
+if test $enable_tizen_dynamic_certificate_loading != no;then
+        AC_DEFINE(ENABLE_TIZEN_TV_DYNAMIC_CERTIFICATE_LOADING, 1, [Add new feature, which implement support dynamic SSL Certificate Loading])
+fi
+AC_MSG_RESULT($enable_tizen_dynamic_certificate_loading)
+
+AM_CONDITIONAL(TIZEN_TV_DYNAMIC_CERTIFICATE_LOADING, [test $enable_tizen_dynamic_certificate_loading = yes])
+
+dnl ***************************************************
+dnl *** Tizen checking deleted entry files support  ***
+dnl ***************************************************
+
+AC_ARG_ENABLE(tizen-tv-checking-deleted-entry-file,
+	AS_HELP_STRING([--enable-tizen-tv-checking-deleted-entry-file], [Enable Tizen checking deleted entry files support ]),        ,
+	enable_tizen_tv_checking_deleted_entry_file=no)
+
+AC_MSG_CHECKING([for Tizen checking deleted entry files])
+if test $enable_tizen_tv_checking_deleted_entry_file != no;then
+        AC_DEFINE(ENABLE_TIZEN_TV_CHECKING_DELETED_ENTRY_FILE, 1, [Checking deleted entry files before soup_cache_load()])
+fi
+AC_MSG_RESULT($enable_tizen_tv_checking_deleted_entry_file)
+
+AM_CONDITIONAL(TIZEN_TV_CHECKING_DELETED_ENTRY_FILE, [test $enable_tizen_tv_checking_deleted_entry_file = yes])
+
+dnl *******************************
+dnl *** Tizen performance test  ***
+dnl *******************************
+
+AC_ARG_ENABLE(tizen-performance-test-log,
+	AS_HELP_STRING([--enable-tizen-performance-test-log], [Enable Tizen performance test log]),        ,
+	enable_tizen_performance_test_log=no)
+
+AC_MSG_CHECKING([for Tizen performance test log])
+if test $enable_tizen_performance_test_log != no;then
+	AC_DEFINE(ENABLE_TIZEN_PERFORMANCE_TEST_LOG, 1, [Add performance test log])
+fi
+AC_MSG_RESULT($enable_tizen_performance_test_log)
+
+AM_CONDITIONAL(TIZEN_PERFORMANCE_TEST_LOG, [test $enable_tizen_performance_test_log = yes])
+
+dnl ************************************************************************
+dnl *** Use soupTimeOffset to adjust time for certificate or cookie case ***
+dnl ************************************************************************
+
+AC_ARG_ENABLE(tizen-tv-adjust-time,
+    AS_HELP_STRING([--enable-tizen-tv-adjust-time], [Enable Tizen use soupTimeOffset to adjust time for certificate or cookie case]),        ,
+    enable_tizen_tv_adjust_time=no)
+
+AC_MSG_CHECKING([for Tizen use soupTimeOffset to adjust time for certificate or cookie case])
+if test $enable_tizen_tv_adjust_time != no;then
+        AC_DEFINE(ENABLE_TIZEN_TV_ADJUST_TIME, 1, [Add new feature, which use soupTimeOffset to adjust time for certificate or cookie case])
+fi
+AC_MSG_RESULT($enable_tizen_tv_adjust_time)
+
+AM_CONDITIONAL(TIZEN_TV_ADJUST_TIME, [test $enable_tizen_tv_adjust_time = yes])
+
 dnl ******************************
 dnl *** Stuff for regression tests
 dnl ******************************

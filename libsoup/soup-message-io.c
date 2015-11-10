@@ -22,6 +22,43 @@
 #include "soup-message-private.h"
 #include "soup-message-queue.h"
 #include "soup-misc-private.h"
+#include "TIZEN.h"
+
+#if ENABLE(TIZEN_PERFORMANCE_TEST_LOG)
+#include <sys/prctl.h>
+#include <stdio.h>
+#ifndef PR_TASK_PERF_USER_TRACE
+#define PR_TASK_PERF_USER_TRACE 666
+#endif
+
+#define MAX_STRING_LEN 256
+
+static void prctl_with_url(const char *prestr, const char *url)
+{
+	char s[MAX_STRING_LEN] = "";
+	int len_max = 120;
+	int len_pre = strlen(prestr);
+	int len_url = strlen(url);
+
+	strncpy(s, prestr, len_pre);
+	if(len_pre + len_url < len_max) {
+		strncpy(s+len_pre, url, len_url);
+	}
+	else {
+		int len_part = len_max - len_pre - 10;
+		strncpy(s+len_pre, url, len_part);
+		strncpy(s+len_pre+len_part, "...", MAX_STRING_LEN-len_pre-len_part-1);
+		strncpy(s+len_pre+len_part+3, url+len_url-7, 7);
+	}
+	prctl(PR_TASK_PERF_USER_TRACE, s, strlen(s));
+}
+
+static void prctl_with_url_and_free(const char *prestr, char *url)
+{
+	prctl_with_url(prestr, url);
+	g_free(url);
+}
+#endif
 
 typedef enum {
 	SOUP_MESSAGE_IO_CLIENT,
@@ -87,8 +124,11 @@ typedef struct {
 	gpointer                  completion_data;
 } SoupMessageIOData;
 	
-
+#if ENABLE(TIZEN_USE_EXPANDED_RESPONSE_BLOCK)
+#define RESPONSE_BLOCK_SIZE 32768
+#else
 #define RESPONSE_BLOCK_SIZE 8192
+#endif
 
 void
 soup_message_io_cleanup (SoupMessage *msg)
@@ -316,6 +356,9 @@ io_write (SoupMessage *msg, gboolean blocking,
 	SoupMessageIOData *io = priv->io_data;
 	SoupBuffer *chunk;
 	gssize nwrote;
+#if ENABLE(TIZEN_DLOG)
+	char *uri = NULL;
+#endif
 
 	switch (io->write_state) {
 	case SOUP_MESSAGE_IO_STATE_HEADERS:
@@ -324,6 +367,15 @@ io_write (SoupMessage *msg, gboolean blocking,
 					    &io->write_encoding,
 					    io->header_data);
 		}
+
+#if ENABLE(TIZEN_DLOG)
+		uri = soup_uri_to_string(soup_message_get_uri(msg), FALSE);
+		TIZEN_LOGI("Request URL: %s", uri);
+#if ENABLE(TIZEN_PERFORMANCE_TEST_LOG)
+		prctl_with_url("[BGN] soup_io_w : ", uri);
+#endif
+		g_free(uri);
+#endif
 
 		while (io->written < io->write_buf->len) {
 			nwrote = g_pollable_stream_write (io->ostream,
@@ -502,6 +554,9 @@ io_read (SoupMessage *msg, gboolean blocking,
 	gssize nread;
 	SoupBuffer *buffer;
 	guint status;
+#if ENABLE(TIZEN_DLOG)
+	char *uri = NULL;
+#endif
 
 	switch (io->read_state) {
 	case SOUP_MESSAGE_IO_STATE_HEADERS:
@@ -513,6 +568,15 @@ io_read (SoupMessage *msg, gboolean blocking,
 					       &io->read_encoding,
 					       io->header_data, error);
 		g_byte_array_set_size (io->read_header_buf, 0);
+
+#if ENABLE(TIZEN_DLOG)
+		uri = soup_uri_to_string(soup_message_get_uri(msg), FALSE);
+		TIZEN_LOGI("Response URL: %s", uri);
+#if ENABLE(TIZEN_PERFORMANCE_TEST_LOG)
+		prctl_with_url("[BGN] soup_io_r_hdr : ", uri);
+#endif
+		g_free(uri);
+#endif
 
 		if (status != SOUP_STATUS_OK) {
 			/* Either we couldn't parse the headers, or they
@@ -526,6 +590,9 @@ io_read (SoupMessage *msg, gboolean blocking,
 			soup_message_headers_append (msg->request_headers,
 						     "Connection", "close");
 			io->read_state = SOUP_MESSAGE_IO_STATE_FINISHING;
+#if ENABLE(TIZEN_PERFORMANCE_TEST_LOG)
+			prctl_with_url_and_free("[END] soup_io_r_hdr,not ok : ",soup_uri_to_string(soup_message_get_uri(msg), FALSE));
+#endif
 			break;
 		}
 
@@ -615,6 +682,9 @@ io_read (SoupMessage *msg, gboolean blocking,
 			SoupContentSnifferStream *sniffer_stream = SOUP_CONTENT_SNIFFER_STREAM (io->body_istream);
 			const char *content_type;
 			GHashTable *params;
+#if ENABLE (TIZEN_UPDATE_CACHE_ENTRY_CONTENT_TYPE_HEADER)
+			gboolean composite_type = FALSE;
+#endif
 
 			if (!soup_content_sniffer_stream_is_ready (sniffer_stream, blocking,
 								   cancellable, error))
@@ -622,6 +692,22 @@ io_read (SoupMessage *msg, gboolean blocking,
 
 			content_type = soup_content_sniffer_stream_sniff (sniffer_stream, &params);
 			soup_message_content_sniffed (msg, content_type, params);
+#if ENABLE (TIZEN_UPDATE_CACHE_ENTRY_CONTENT_TYPE_HEADER)
+			if (content_type && msg->status_code != SOUP_STATUS_NOT_MODIFIED) {
+				if (params) {
+					GHashTableIter iter;
+					gpointer key, value;
+
+					g_hash_table_iter_init (&iter, params);
+					while (g_hash_table_iter_next (&iter, &key, &value)) {
+						composite_type = TRUE;
+						break;
+					}
+				}
+				if (!composite_type)
+					soup_cache_entry_set_content_type (io->item->session, msg, content_type);
+			}
+#endif
 		}
 
 		io->read_state = SOUP_MESSAGE_IO_STATE_BODY;

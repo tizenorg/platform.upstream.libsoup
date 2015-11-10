@@ -18,6 +18,37 @@
 #include "soup-filter-input-stream.h"
 #include "soup-io-stream.h"
 #include "soup-misc-private.h"
+#include "TIZEN.h"
+
+#if ENABLE(TIZEN_PERFORMANCE_TEST_LOG)
+#include <sys/prctl.h>
+#ifndef PR_TASK_PERF_USER_TRACE
+#define PR_TASK_PERF_USER_TRACE 666
+#endif
+
+#define MAX_STRING_LEN 256
+#define HWCLOCK_LOG(s)	{const char *str=s; prctl(PR_TASK_PERF_USER_TRACE, str, strlen(str));}
+
+static void prctl_with_url(const char *prestr, const char *url)
+{
+	char s[MAX_STRING_LEN] = "";
+	int len_max = 120;
+	int len_pre = strlen(prestr);
+	int len_url = strlen(url);
+
+	strncpy(s, prestr, len_pre);
+	if(len_pre + len_url < len_max) {
+		strncpy(s+len_pre, url, len_url);
+	}
+	else {
+		int len_part = len_max - len_pre - 10;
+		strncpy(s+len_pre, url, len_part);
+		strncpy(s+len_pre+len_part, "...", MAX_STRING_LEN-len_pre-len_part-1);
+		strncpy(s+len_pre+len_part+3, url+len_url-7, 7);
+	}
+	prctl(PR_TASK_PERF_USER_TRACE, s, strlen(s));
+}
+#endif
 
 /**
  * SECTION:soup-socket
@@ -37,6 +68,13 @@ enum {
 	DISCONNECTED,
 	NEW_CONNECTION,
 	EVENT,
+#if ENABLE(TIZEN_TV_DYNAMIC_CERTIFICATE_LOADING)
+        DYNAMIC_CERTIFICATEPATH,
+#endif
+#if ENABLE(TIZEN_TV_CERTIFICATE_HANDLING)
+	ACCEPT_CERTIFICATE,
+#endif
+
 	LAST_SIGNAL
 };
 
@@ -60,6 +98,9 @@ enum {
 	PROP_TLS_CERTIFICATE,
 	PROP_TLS_ERRORS,
 	PROP_PROXY_RESOLVER,
+#if ENABLE(TIZEN_TV_CLIENT_CERTIFICATE)
+	PROP_WIDGET_ENGINE,
+#endif
 
 	LAST_PROP
 };
@@ -90,7 +131,21 @@ typedef struct {
 	guint timeout;
 
 	GCancellable *connect_cancel;
+#if ENABLE(TIZEN_TV_CLIENT_CERTIFICATE)
+	gboolean widget_engine;
+	gchar **cert_lists;
+	gchar **default_cert_lists;
+#endif
+#if ENABLE(TIZEN_TV_CERTIFICATE_HANDLING)
+	gboolean acceptedCertificate;
+#endif
 } SoupSocketPrivate;
+
+#if ENABLE(TIZEN_TV_CLIENT_CERTIFICATE)
+#define CERT_LIST_FILE "/usr/share/clientcert/ClientCertList"
+#define DEFAULT_CERT_FILE "/usr/share/clientcert/DefaultClientCertList"
+#endif
+
 #define SOUP_SOCKET_GET_PRIVATE(o) (G_TYPE_INSTANCE_GET_PRIVATE ((o), SOUP_TYPE_SOCKET, SoupSocketPrivate))
 
 static void soup_socket_peer_certificate_changed (GObject *conn,
@@ -103,6 +158,13 @@ soup_socket_init (SoupSocket *sock)
 	SoupSocketPrivate *priv = SOUP_SOCKET_GET_PRIVATE (sock);
 
 	priv->non_blocking = TRUE;
+#if ENABLE(TIZEN_TV_CLIENT_CERTIFICATE)
+	priv->cert_lists = NULL;
+	priv->default_cert_lists = NULL;
+#endif
+#if ENABLE(TIZEN_TV_CERTIFICATE_HANDLING)
+	priv->acceptedCertificate = FALSE;
+#endif
 	g_mutex_init (&priv->addrlock);
 	g_mutex_init (&priv->iolock);
 }
@@ -130,6 +192,13 @@ static void
 soup_socket_finalize (GObject *object)
 {
 	SoupSocketPrivate *priv = SOUP_SOCKET_GET_PRIVATE (object);
+
+#if ENABLE(TIZEN_TV_CLIENT_CERTIFICATE)
+	if (priv->cert_lists)
+		g_strfreev (priv->cert_lists);
+	if (priv->default_cert_lists)
+		g_strfreev (priv->default_cert_lists);
+#endif
 
 	if (priv->connect_cancel) {
 		if (priv->clean_dispose)
@@ -229,6 +298,11 @@ soup_socket_set_property (GObject *object, guint prop_id,
 	case PROP_CLEAN_DISPOSE:
 		priv->clean_dispose = g_value_get_boolean (value);
 		break;
+#if ENABLE(TIZEN_TV_CLIENT_CERTIFICATE)
+	case PROP_WIDGET_ENGINE:
+		priv->widget_engine = g_value_get_boolean (value);
+		break;
+#endif
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
 		break;
@@ -287,6 +361,11 @@ soup_socket_get_property (GObject *object, guint prop_id,
 	case PROP_PROXY_RESOLVER:
 		g_value_set_object (value, priv->proxy_resolver);
 		break;
+#if ENABLE(TIZEN_TV_CLIENT_CERTIFICATE)
+	case PROP_WIDGET_ENGINE:
+		g_value_set_boolean (value, priv->widget_engine);
+		break;
+#endif
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
 		break;
@@ -398,6 +477,29 @@ soup_socket_class_init (SoupSocketClass *socket_class)
 			      G_TYPE_SOCKET_CLIENT_EVENT,
 			      G_TYPE_IO_STREAM);
 
+#if ENABLE(TIZEN_TV_DYNAMIC_CERTIFICATE_LOADING)
+	signals[DYNAMIC_CERTIFICATEPATH] =
+		g_signal_new ("dynamic-certificatePath",
+			      G_OBJECT_CLASS_TYPE (object_class),
+			      G_SIGNAL_RUN_LAST,
+			      0,
+			      NULL, NULL,
+			      NULL,
+			      G_TYPE_POINTER, 1,
+			      G_TYPE_POINTER);
+#endif
+#if ENABLE(TIZEN_TV_CERTIFICATE_HANDLING)
+	signals[ACCEPT_CERTIFICATE] =
+		g_signal_new ("accept-certificate",
+			      G_OBJECT_CLASS_TYPE (object_class),
+			      G_SIGNAL_RUN_LAST,
+			      0,
+			      NULL, NULL,
+			      NULL,
+			      G_TYPE_BOOLEAN, 2,
+			      G_TYPE_TLS_CERTIFICATE,
+			      G_TYPE_TLS_CERTIFICATE_FLAGS);
+#endif
 
 	/* properties */
 	/**
@@ -628,8 +730,122 @@ soup_socket_class_init (SoupSocketClass *socket_class)
 				     "GProxyResolver to use",
 				     G_TYPE_PROXY_RESOLVER,
 				     G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY));
+
+#if ENABLE(TIZEN_TV_CLIENT_CERTIFICATE)
+	/**
+	 * SOUP_SOCKET_WIDGET_ENGINE:
+	 *
+	 * Alias for the #SoupSocket:widget-engine property.
+	 **/
+	g_object_class_install_property (
+		object_class, PROP_WIDGET_ENGINE,
+		g_param_spec_boolean (SOUP_SOCKET_WIDGET_ENGINE,
+				      "widget engine",
+				      "Whether or not to be running Widget Engine",
+				      FALSE,
+				      G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY));
+#endif
 }
 
+#if ENABLE(TIZEN_TV_CLIENT_CERTIFICATE) || ENABLE(TIZEN_TV_DYNAMIC_CERTIFICATE_LOADING)
+static GTlsCertificate *
+soup_make_client_certificate(gchar* cert_file, gchar* key_file)
+{
+	GTlsCertificate* cert = NULL;
+	GError* pGError = NULL;
+
+	if (access (cert_file, 4) == 0 && access (key_file, 4) == 0) {
+		cert = g_tls_certificate_new_from_files (cert_file, key_file, &pGError);
+		if (!cert) {
+			if (pGError) {
+				g_warning ("Could not read SSL certificate from : %s", pGError->message);
+				g_error_free (pGError);
+			}
+		}
+	} else
+		g_warning ("Could not acess cert=%s, key=%s\n", cert_file, key_file);
+
+	return cert;
+}
+#endif
+
+#if ENABLE(TIZEN_TV_CLIENT_CERTIFICATE)
+static GTlsCertificate *
+soup_get_client_certificate(SoupSocket *sock, const char* ssl_host, gchar*** cert_list, const char* client_cert_list)
+{
+	SoupSocketPrivate *priv = SOUP_SOCKET_GET_PRIVATE (sock);
+	GTlsCertificate* cert = NULL;
+	GError* pGError = NULL;
+	gsize cert_list_len;
+	gchar* cert_file = NULL;
+	gchar* key_file = NULL;
+	int i;
+
+	if (!ssl_host || !ssl_host[0] || !priv)
+		return NULL;
+	if (!*cert_list) {
+		gchar *cert_list_file = NULL;
+		if (!g_file_get_contents (client_cert_list, &cert_list_file, &cert_list_len, &pGError) || pGError) {
+			g_warning ("Could not get certificate list of [%s] : %s", client_cert_list, pGError->message);
+			g_error_free (pGError);
+			return NULL;
+		}
+
+		if (!cert_list_file)
+			return NULL;
+		/* keep certficate list's infomation */
+		*cert_list = g_strsplit (cert_list_file, ",", 0);
+		g_free (cert_list_file);
+	}
+
+	for (i = 0; (*cert_list)[i]; i++) {
+		gchar **path = g_strsplit ((*cert_list)[i], ":", 0);
+
+		/* verify format (url:certpath:keypath) */
+		if (path[0] && path[1] && path[2]) {
+			/* remove white space */
+			g_strstrip(path[0]);
+			g_strstrip(path[1]);
+			g_strstrip(path[2]);
+			/* compare url pattern */
+			if (strstr (ssl_host, path[0]) || !g_strcmp0(path[0], "*")) {
+				cert_file = g_strdup (path[1]);
+				key_file =g_strdup (path[2]);
+				g_strfreev (path);
+				break;
+			}
+		}
+		g_strfreev (path);
+	}
+
+	if (!cert_file || !key_file)
+		return NULL;
+
+	cert = soup_make_client_certificate(cert_file, key_file);
+
+	g_free (cert_file);
+	g_free (key_file);
+	return cert;
+}
+#endif
+
+#if ENABLE(TIZEN_TV_DYNAMIC_CERTIFICATE_LOADING)
+static GTlsCertificate *soup_get_dynamic_client_certificate(SoupSocket *sock, const char* ssl_host)
+{
+	SoupSocket *soupSock = sock;
+	GTlsCertificate* dynamic_cert = NULL;
+	GError* pGError = NULL;
+	const char* get_certpath = NULL;
+
+	g_signal_emit (sock, signals[DYNAMIC_CERTIFICATEPATH], 0, ssl_host, &get_certpath);
+	TIZEN_LOGI("Get Certpath[%s] \n", get_certpath);
+
+	if (!get_certpath)
+		return NULL;
+
+	return soup_make_client_certificate(get_certpath, get_certpath);
+}
+#endif
 
 /**
  * soup_socket_new:
@@ -1092,7 +1308,12 @@ soup_socket_peer_certificate_changed (GObject *conn, GParamSpec *pspec,
 {
 	SoupSocketPrivate *priv = SOUP_SOCKET_GET_PRIVATE (sock);
 
+#if ENABLE(TIZEN_TV_CERTIFICATE_HANDLING)
+	if (!priv->acceptedCertificate)
+		priv->tls_errors = g_tls_connection_get_peer_certificate_errors (G_TLS_CONNECTION (priv->conn));
+#else
 	priv->tls_errors = g_tls_connection_get_peer_certificate_errors (G_TLS_CONNECTION (priv->conn));
+#endif
 
 	g_object_notify (sock, "tls-certificate");
 	g_object_notify (sock, "tls-errors");
@@ -1102,7 +1323,25 @@ static gboolean
 soup_socket_accept_certificate (GTlsConnection *conn, GTlsCertificate *cert,
 				GTlsCertificateFlags errors, gpointer sock)
 {
+#if ENABLE(TIZEN_TV_CERTIFICATE_HANDLING)
+	gboolean accept = FALSE;
+	SoupSocket *soupSock = sock;
+	SoupSocketPrivate *priv = SOUP_SOCKET_GET_PRIVATE (soupSock);
+
+	if (priv) {
+#if ENABLE(TIZEN_DLOG)
+		TIZEN_LOGI("[Accept_Certificate] Certificate warning code is [%d], address is [%s]\n", errors, soup_address_get_name (priv->remote_addr));
+#endif
+		g_signal_emit (sock, signals[ACCEPT_CERTIFICATE], 0, cert, errors, &accept);
+#if ENABLE(TIZEN_DLOG)
+		TIZEN_LOGI("[Accept_Certificate] Result is [%d].(1:ignore error; 0:not ignore)\n", accept);
+#endif
+		priv->acceptedCertificate = accept;
+	}
+	return accept;
+#else
 	return TRUE;
+#endif
 }
 
 static gboolean
@@ -1125,16 +1364,44 @@ soup_socket_setup_ssl (SoupSocket    *sock,
 	if (!priv->is_server) {
 		GTlsClientConnection *conn;
 		GSocketConnectable *identity;
-
+#if ENABLE(TIZEN_TV_CLIENT_CERTIFICATE) || ENABLE(TIZEN_TV_DYNAMIC_CERTIFICATE_LOADING)
+		GTlsCertificate *cert=NULL;
+#endif
 		identity = g_network_address_new (ssl_host, 0);
-		conn = g_initable_new (g_tls_backend_get_client_connection_type (backend),
-				       cancellable, error,
-				       "base-io-stream", priv->conn,
-				       "server-identity", identity,
-				       "database", priv->ssl_creds,
-				       "require-close-notify", FALSE,
-				       "use-ssl3", priv->ssl_fallback,
-				       NULL);
+
+#if ENABLE(TIZEN_TV_DYNAMIC_CERTIFICATE_LOADING)
+		if (!(cert = soup_get_dynamic_client_certificate (sock, ssl_host)))
+#endif
+#if ENABLE(TIZEN_TV_CLIENT_CERTIFICATE)
+			if (!priv->widget_engine || !(cert = soup_get_client_certificate(sock, ssl_host, &priv->cert_lists, CERT_LIST_FILE)))
+					cert = soup_get_client_certificate(sock, ssl_host, &priv->default_cert_lists, DEFAULT_CERT_FILE);
+#endif
+
+#if ENABLE(TIZEN_TV_CLIENT_CERTIFICATE) || ENABLE(TIZEN_TV_DYNAMIC_CERTIFICATE_LOADING)
+		if (cert) {
+			conn = g_initable_new (g_tls_backend_get_client_connection_type (backend),
+						       cancellable, error,
+						       "base-io-stream", priv->conn,
+						       "server-identity", identity,
+						       "database", priv->ssl_creds,
+						       "certificate", cert,
+						       "require-close-notify", FALSE,
+						       "use-ssl3", FALSE,
+						       NULL);
+
+			g_object_unref (cert);
+		}
+		else
+#endif
+			conn = g_initable_new (g_tls_backend_get_client_connection_type (backend),
+						       cancellable, error,
+						       "base-io-stream", priv->conn,
+						       "server-identity", identity,
+						       "database", priv->ssl_creds,
+						       "require-close-notify", FALSE,
+						       "use-ssl3", priv->ssl_fallback,
+						       NULL);
+
 		g_object_unref (identity);
 
 		if (!conn)
@@ -1254,6 +1521,9 @@ soup_socket_handshake_async (SoupSocket          *sock,
 	GTask *task;
 	GError *error = NULL;
 
+#if ENABLE(TIZEN_PERFORMANCE_TEST_LOG)
+	prctl_with_url("[EVT] soup handshake start : ", soup_address_get_name(priv->remote_addr));
+#endif
 	task = g_task_new (sock, cancellable, callback, user_data);
 
 	if (!soup_socket_setup_ssl (sock, ssl_host, cancellable, &error)) {
@@ -1287,7 +1557,13 @@ soup_socket_handshake_finish (SoupSocket    *sock,
 gboolean
 soup_socket_is_ssl (SoupSocket *sock)
 {
-	SoupSocketPrivate *priv = SOUP_SOCKET_GET_PRIVATE (sock);
+#if ENABLE(TIZEN_CHECK_SOCKET_EXISTS_BEFORE_USE_IT)
+	SoupSocketPrivate *priv;
+	g_return_val_if_fail (SOUP_IS_SOCKET (sock), FALSE);
+	priv = SOUP_SOCKET_GET_PRIVATE (sock);
+#else
+        SoupSocketPrivate *priv = SOUP_SOCKET_GET_PRIVATE (sock);
+#endif
 
 	return priv->ssl;
 }

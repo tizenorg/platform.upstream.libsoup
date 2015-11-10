@@ -10,6 +10,8 @@
 #include "soup-message-private.h"
 #include "soup-misc.h"
 
+#include "TIZEN.h"
+
 G_BEGIN_DECLS
 
 #define SOUP_TYPE_CONNECTION            (soup_connection_get_type ())
@@ -48,6 +50,9 @@ GType soup_connection_get_type (void);
 #define SOUP_CONNECTION_IDLE_TIMEOUT    "idle-timeout"
 #define SOUP_CONNECTION_STATE           "state"
 #define SOUP_CONNECTION_MESSAGE         "message"
+//#if ENABLE(TIZEN_TV_CLIENT_CERTIFICATE)
+#define SOUP_CONNECTION_WIDGET_ENGINE   "widget-engine"
+//#endif
 
 void            soup_connection_connect_async    (SoupConnection       *conn,
 						  GCancellable         *cancellable,
@@ -90,6 +95,13 @@ void            soup_connection_send_request   (SoupConnection          *conn,
 						gpointer                 user_data);
 
 gboolean        soup_connection_get_ssl_fallback (SoupConnection   *conn);
+
+#if ENABLE(TIZEN_TV_CREATE_IDLE_TCP_CONNECTION)
+gboolean              soup_connection_has_current_item (SoupConnection *conn);
+SoupMessageQueueItem *soup_connection_get_current_item (SoupConnection *conn);
+void                  soup_connection_set_current_item (SoupConnection *conn, SoupMessageQueueItem *item);
+void            soup_connection_set_pre_connect_idle (SoupConnection *conn);
+#endif
 
 G_END_DECLS
 

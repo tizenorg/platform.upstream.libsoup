@@ -15,7 +15,11 @@
 
 #include "soup-date.h"
 #include "soup.h"
+#include "TIZEN.h"
 
+#if ENABLE(TIZEN_TV_ADJUST_TIME)
+#include <time.h>
+#endif
 /**
  * SoupDate:
  * @year: the year, 1 to 9999
@@ -740,6 +744,33 @@ soup_date_to_timeval (SoupDate *date, GTimeVal *time)
 	time->tv_usec = 0;
 }
 
+#if ENABLE(TIZEN_TV_ADJUST_TIME)
+/**
+ * soup_date_set_timeOffset:
+ * @date: a #SoupDate
+ *
+ * set time offset
+ *
+ * Return value: None
+ *
+ * Since: 2013.Aug, (porting from Orsay2014)
+ **/
+double soupTimeOffset = 0;
+void
+soup_date_set_timeOffset (double timeOffset)
+{
+    time_t timer;
+
+    timer = time (NULL);
+    TIZEN_LOGI("soup date set time offset is [%f], TV board time is [%ld]", timeOffset, timer);
+    TIZEN_LOGI("TV borad time is: %s",ctime(&timer));
+    timer = timer + timeOffset/1000;
+    TIZEN_LOGI("after off set time is: %s",ctime(&timer));
+
+    soupTimeOffset = timeOffset;
+}
+#endif
+
 /**
  * soup_date_is_past:
  * @date: a #SoupDate
@@ -758,8 +789,11 @@ soup_date_is_past (SoupDate *date)
 	/* optimization */
 	if (date->year < 2010)
 		return TRUE;
-
+#if ENABLE(TIZEN_TV_ADJUST_TIME)
+	return soup_date_to_time_t (date) < time (NULL) + (int)(soupTimeOffset / 1000);
+#else
 	return soup_date_to_time_t (date) < time (NULL);
+#endif
 }
 
 /**

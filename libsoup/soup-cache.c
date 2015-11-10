@@ -39,6 +39,17 @@
 #include "soup-message-private.h"
 #include "soup.h"
 #include "soup-message-private.h"
+#include "TIZEN.h"
+
+#if ENABLE(TIZEN_TV_SOUP_CACHE_CLEAN_LEAKED_RESOURCES)
+#include <glib/gstdio.h>
+
+#if ENABLE(TIZEN_TV_SOUP_CACHE_OPTIMISE_LOAD_TIME)
+#include <dirent.h>
+#endif
+
+#endif
+
 
 /**
  * SECTION:soup-cache
@@ -82,7 +93,11 @@ static void soup_cache_content_processor_init (SoupContentProcessorInterface *in
 #define SOUP_CACHE_FILE "soup.cache2"
 
 #define SOUP_CACHE_HEADERS_FORMAT "{ss}"
+#if ENABLE(TIZEN_USER_AGENT_CHECK_IN_CACHE)
+#define SOUP_CACHE_PHEADERS_FORMAT "(sbuuuuuqsa" SOUP_CACHE_HEADERS_FORMAT ")"
+#else
 #define SOUP_CACHE_PHEADERS_FORMAT "(sbuuuuuqa" SOUP_CACHE_HEADERS_FORMAT ")"
+#endif
 #define SOUP_CACHE_ENTRIES_FORMAT "(qa" SOUP_CACHE_PHEADERS_FORMAT ")"
 
 /* Basically the same format than above except that some strings are
@@ -105,6 +120,9 @@ typedef struct _SoupCacheEntry {
 	guint32 hits;
 	GCancellable *cancellable;
 	guint16 status_code;
+#if ENABLE(TIZEN_USER_AGENT_CHECK_IN_CACHE)
+	char *user_agent;
+#endif
 } SoupCacheEntry;
 
 struct _SoupCachePrivate {
@@ -168,6 +186,11 @@ get_cacheability (SoupCache *cache, SoupMessage *msg)
 	content_type = soup_message_headers_get_content_type (msg->response_headers, NULL);
 	if (content_type && !g_ascii_strcasecmp (content_type, "multipart/x-mixed-replace"))
 		return SOUP_CACHE_UNCACHEABLE;
+
+#if ENABLE(TIZEN_TV_NO_CACHE_ABOUT_VIDEO_AND_AUDIO)
+	if (content_type && (!g_ascii_strncasecmp (content_type, "video/", 6) || !g_ascii_strncasecmp (content_type, "audio/", 6)))
+		return SOUP_CACHE_UNCACHEABLE;
+#endif
 
 	cache_control = soup_message_headers_get_list (msg->response_headers, "Cache-Control");
 	if (cache_control && *cache_control) {
@@ -275,6 +298,10 @@ static void
 soup_cache_entry_free (SoupCacheEntry *entry)
 {
 	g_free (entry->uri);
+#if ENABLE(TIZEN_USER_AGENT_CHECK_IN_CACHE)
+	g_free (entry->user_agent);
+	entry->user_agent = NULL;
+#endif
 	g_clear_pointer (&entry->headers, soup_message_headers_free);
 	g_clear_object (&entry->cancellable);
 
@@ -315,6 +342,36 @@ soup_cache_entry_get_current_age (SoupCacheEntry *entry)
 	resident_time = now - entry->response_time;
 	return entry->corrected_initial_age + resident_time;
 }
+
+#if ENABLE_TIZEN_UPDATE_CORRECTED_INITIAL_AGE_FOR_CACHE
+static guint
+soup_cache_entry_update_corrected_initial_age (SoupCacheEntry *entry)
+{
+	SoupDate *soup_date;
+	char *age, *date;
+	time_t date_value, apparent_age, corrected_received_age, age_value = 0;
+
+	date = soup_message_headers_get (entry->headers, "Date");
+
+	if (date) {
+		soup_date = soup_date_new_from_string (date);
+		date_value = soup_date_to_time_t (soup_date);
+		soup_date_free (soup_date);
+
+		age = soup_message_headers_get_one (entry->headers, "Age");
+		if (age)
+			age_value = g_ascii_strtoll (age, NULL, 10);
+
+		apparent_age = entry->response_time - date_value;
+		corrected_received_age = MAX (apparent_age, age_value);
+		entry->corrected_initial_age = corrected_received_age;
+	} else {
+		entry->corrected_initial_age = time (NULL);
+	}
+	TIZEN_LOGI("Update corrected_initial_age(%d)", entry->corrected_initial_age);
+	return 0;
+}
+#endif
 
 static gboolean
 soup_cache_entry_is_fresh_enough (SoupCacheEntry *entry, gint min_fresh)
@@ -456,6 +513,10 @@ soup_cache_entry_new (SoupCache *cache, SoupMessage *msg, time_t request_time, t
 {
 	SoupCacheEntry *entry;
 	const char *date;
+#if ENABLE(TIZEN_USER_AGENT_CHECK_IN_CACHE)
+	GString *str;
+	const char *ua;
+#endif
 
 	entry = g_slice_new0 (SoupCacheEntry);
 	entry->dirty = FALSE;
@@ -467,6 +528,15 @@ soup_cache_entry_new (SoupCache *cache, SoupMessage *msg, time_t request_time, t
 	/* Headers */
 	entry->headers = soup_message_headers_new (SOUP_MESSAGE_HEADERS_RESPONSE);
 	copy_end_to_end_headers (msg->response_headers, entry->headers);
+
+#if ENABLE(TIZEN_USER_AGENT_CHECK_IN_CACHE)
+	/* User Agent */
+	ua = soup_message_headers_get_one(msg->request_headers, "User-Agent");
+	if (ua) {
+		str = g_string_new(ua);
+		entry->user_agent = str->str;
+	}
+#endif
 
 	/* LRU list */
 	entry->hits = 0;
@@ -609,10 +679,24 @@ soup_cache_entry_insert (SoupCache *cache,
 	SoupCacheEntry *old_entry;
 
 	/* Fill the key */
+#if ENABLE(TIZEN_TV_CHECKING_DELETED_ENTRY_FILE)
+	if (!entry->key)
+#endif
 	entry->key = get_cache_key_from_uri ((const char *) entry->uri);
 
 	if (soup_message_headers_get_encoding (entry->headers) == SOUP_ENCODING_CONTENT_LENGTH)
+#if ENABLE(TIZEN_TV_COMPUTING_DISK_CACHE_SIZE)
+	{
+		if (entry->length) {
+			length_to_add = entry->length;
+		}
+		else {
+			length_to_add = soup_message_headers_get_content_length (entry->headers);
+		}
+	}
+#else
 		length_to_add = soup_message_headers_get_content_length (entry->headers);
+#endif
 
 	/* Check if we are going to store the resource depending on its size */
 	if (length_to_add) {
@@ -673,6 +757,9 @@ soup_cache_send_response (SoupCache *cache, SoupMessage *msg)
 	char *current_age;
 	GInputStream *file_stream, *body_stream, *cache_stream;
 	GFile *file;
+#if ENABLE(TIZEN_TV_ADD_X_SOUP_MESSAGE_HEADERS)
+	char *entry_length;
+#endif
 
 	g_return_val_if_fail (SOUP_IS_CACHE (cache), NULL);
 	g_return_val_if_fail (SOUP_IS_MESSAGE (msg), NULL);
@@ -710,6 +797,16 @@ soup_cache_send_response (SoupCache *cache, SoupMessage *msg)
 				      "Age",
 				      current_age);
 	g_free (current_age);
+
+#if ENABLE(TIZEN_TV_ADD_X_SOUP_MESSAGE_HEADERS)
+	/* Add 'X-From-Cache' header */
+	soup_message_headers_append(msg->response_headers, "X-From-Cache", "true");
+
+	/* Add 'X-Entry-Length' header */
+	entry_length = g_strdup_printf("%u", entry->length);
+	soup_message_headers_append(msg->response_headers, "X-Entry-Length", entry_length);
+	g_free (entry_length);
+#endif
 
 	/* Create the cache stream. */
 	soup_message_disable_feature (msg, SOUP_TYPE_CACHE);
@@ -1080,7 +1177,14 @@ soup_cache_has_response (SoupCache *cache, SoupMessage *msg)
 	gpointer value;
 	int max_age, max_stale, min_fresh;
 	GList *lru_item, *item;
-
+#if ENABLE(TIZEN_USER_AGENT_CHECK_IN_CACHE)
+	const char *ua;
+#endif
+#if ENABLE(TIZEN_CACHE_FILE_SIZE_VALIDATION)
+	GFile *file;
+	GFileInfo *file_info;
+	goffset file_size;
+#endif
 	entry = soup_cache_entry_lookup (cache, msg);
 
 	/* 1. The presented Request-URI and that of stored response
@@ -1089,7 +1193,23 @@ soup_cache_has_response (SoupCache *cache, SoupMessage *msg)
 	if (!entry)
 		return SOUP_CACHE_RESPONSE_STALE;
 
-	/* Increase hit count. Take sorting into account */
+#if ENABLE(TIZEN_CACHE_FILE_SIZE_VALIDATION)
+	file = get_file_from_entry (cache, entry);
+	file_info = g_file_query_info (file, G_FILE_ATTRIBUTE_STANDARD_SIZE,
+		      G_FILE_QUERY_INFO_NONE, NULL, NULL);
+
+	if (file_info && (file_size = g_file_info_get_size (file_info)) != entry->length) {
+		soup_cache_entry_remove(cache, entry, TRUE);
+		g_file_delete (file, NULL, NULL);
+		g_object_unref (file_info);
+		g_object_unref (file);
+		return SOUP_CACHE_RESPONSE_STALE;
+	}
+	g_object_unref (file_info);
+	g_object_unref (file);
+#endif
+
+/* Increase hit count. Take sorting into account */
 	entry->hits++;
 	lru_item = g_list_find (cache->priv->lru_start, entry);
 	item = lru_item;
@@ -1141,6 +1261,14 @@ soup_cache_has_response (SoupCache *cache, SoupMessage *msg)
 	if (pragma && soup_header_contains (pragma, "no-cache"))
 		return SOUP_CACHE_RESPONSE_STALE;
 
+#if ENABLE(TIZEN_USER_AGENT_CHECK_IN_CACHE)
+	ua = soup_message_headers_get_one (msg->request_headers, "User-Agent");
+	if (ua && entry->user_agent) {
+		if (strcmp (ua, entry->user_agent))
+			return SOUP_CACHE_RESPONSE_STALE;
+	}
+#endif
+
 	cache_control = soup_message_headers_get_list (msg->request_headers, "Cache-Control");
 	if (cache_control && *cache_control) {
 		GHashTable *hash = soup_header_parse_param_list (cache_control);
@@ -1155,7 +1283,11 @@ soup_cache_has_response (SoupCache *cache, SoupMessage *msg)
 			return SOUP_CACHE_RESPONSE_STALE;
 		}
 
+#if ENABLE (TIZEN_HANDLE_MALFORMED_MAX_AGE_HEADER)
+		if (g_hash_table_lookup_extended (hash, "max-age", NULL, &value) && value) {
+#else
 		if (g_hash_table_lookup_extended (hash, "max-age", NULL, &value)) {
+#endif
 			max_age = (int)MIN (g_ascii_strtoll (value, NULL, 10), G_MAXINT32);
 			/* Forcing cache revalidaton
 			 */
@@ -1282,6 +1414,76 @@ soup_cache_flush (SoupCache *cache)
 		g_warning ("Cache flush finished despite %d pending requests", cache->priv->n_pending);
 }
 
+#if ENABLE(TIZEN_TV_SOUP_CACHE_CLEAN_LEAKED_RESOURCES)
+typedef void (* SoupCacheForeachFileFunc) (SoupCache *cache, const char *name, gpointer user_data);
+
+static void
+soup_cache_foreach_file (SoupCache *cache, SoupCacheForeachFileFunc func, gpointer user_data)
+{
+	GDir *dir;
+	const char *name;
+	SoupCachePrivate *priv = cache->priv;
+
+	dir = g_dir_open (priv->cache_dir, 0, NULL);
+	while ((name = g_dir_read_name (dir))) {
+		if (g_str_has_prefix (name, "soup."))
+		    continue;
+
+		func (cache, name, user_data);
+	}
+	g_dir_close (dir);
+}
+
+#if ENABLE(TIZEN_TV_SOUP_CACHE_OPTIMISE_LOAD_TIME)
+
+/*
+ * When a list of regular files is required, examining the d_type field returned from readdir() is faster
+ * than using g_file_test(G_FILE_TEST_IS_REGULAR).
+*/
+
+static void
+soup_cache_foreach_regular_file (SoupCache *cache, SoupCacheForeachFileFunc func, gpointer user_data)
+{
+	DIR *dir;
+	const char *name;
+	SoupCachePrivate *priv = cache->priv;
+
+	dir = opendir(priv->cache_dir);
+	if (dir) {
+		struct dirent *dp;
+		while ((dp = readdir(dir)) != NULL) {
+			name = dp->d_name;
+			if (g_str_has_prefix (name, "soup."))
+				continue;
+			else if (dp->d_type == DT_UNKNOWN) {
+				// This path should not be executed normally, but is included as a fail safe.
+				gchar *path = g_build_filename(priv->cache_dir, name, NULL);
+				const int isreg = g_file_test (path, G_FILE_TEST_IS_REGULAR);
+				g_free(path);
+				if (!isreg)
+					continue;
+			} else if (dp->d_type != DT_REG)
+				continue;
+
+			func (cache, name, user_data);
+		}
+		closedir(dir);
+	}
+}
+
+#endif
+
+static void
+delete_cache_file (SoupCache *cache, const char *name, gpointer user_data)
+{
+	gchar *path;
+
+	path = g_build_filename (cache->priv->cache_dir, name, NULL);
+	g_unlink (path);
+	g_free (path);
+}
+#endif
+
 static void
 clear_cache_item (gpointer data,
 		  gpointer user_data)
@@ -1292,6 +1494,9 @@ clear_cache_item (gpointer data,
 static void
 clear_cache_files (SoupCache *cache)
 {
+#if ENABLE(TIZEN_TV_SOUP_CACHE_CLEAN_LEAKED_RESOURCES)
+	soup_cache_foreach_file (cache, delete_cache_file, NULL);
+#else
 	GFileInfo *file_info;
 	GFileEnumerator *file_enumerator;
 	GFile *cache_dir_file = g_file_new_for_path (cache->priv->cache_dir);
@@ -1312,6 +1517,7 @@ clear_cache_files (SoupCache *cache)
 		g_object_unref (file_enumerator);
 	}
 	g_object_unref (cache_dir_file);
+#endif
 }
 
 /**
@@ -1419,6 +1625,10 @@ soup_cache_update_from_conditional_request (SoupCache   *cache,
 		copy_end_to_end_headers (msg->response_headers, entry->headers);
 
 		soup_cache_entry_set_freshness (entry, msg, cache);
+#if ENABLE_TIZEN_UPDATE_CORRECTED_INITIAL_AGE_FOR_CACHE
+		soup_cache_entry_update_corrected_initial_age (entry);
+		entry->response_time = time (NULL);
+#endif
 	}
 }
 
@@ -1436,6 +1646,12 @@ pack_entry (gpointer data,
 		return;
 
 	g_variant_builder_open (entries_builder, G_VARIANT_TYPE (SOUP_CACHE_PHEADERS_FORMAT));
+#if ENABLE(TIZEN_FIX_PACK_ENTRY)
+	if (!g_utf8_validate (entry->uri, -1, NULL)) {
+		g_variant_builder_close (entries_builder);
+		return;
+	}
+#endif
 	g_variant_builder_add (entries_builder, "s", entry->uri);
 	g_variant_builder_add (entries_builder, "b", entry->must_revalidate);
 	g_variant_builder_add (entries_builder, "u", entry->freshness_lifetime);
@@ -1444,7 +1660,9 @@ pack_entry (gpointer data,
 	g_variant_builder_add (entries_builder, "u", entry->hits);
 	g_variant_builder_add (entries_builder, "u", entry->length);
 	g_variant_builder_add (entries_builder, "q", entry->status_code);
-
+#if ENABLE(TIZEN_USER_AGENT_CHECK_IN_CACHE)
+	g_variant_builder_add (entries_builder, "s", entry->user_agent);
+#endif
 	/* Pack headers */
 	g_variant_builder_open (entries_builder, G_VARIANT_TYPE ("a" SOUP_CACHE_HEADERS_FORMAT));
 	soup_message_headers_iter_init (&iter, entry->headers);
@@ -1479,8 +1697,21 @@ soup_cache_dump (SoupCache *cache)
 	GVariant *cache_variant;
 
 	if (!g_list_length (cache->priv->lru_start))
+#if ENABLE(TIZEN_FIX_CACHE_DUMP)
+	{
+		GFile *file;
+		filename = g_build_filename (priv->cache_dir, SOUP_CACHE_FILE, NULL);
+		file = g_file_new_for_path (filename);
+		if (file) {
+			g_file_delete (file, NULL, NULL);
+			g_object_unref (file);
+		}
+		g_free (filename);
 		return;
-
+	}
+#else
+	return;
+#endif
 	/* Create the builder and iterate over all entries */
 	g_variant_builder_init (&entries_builder, G_VARIANT_TYPE (SOUP_CACHE_ENTRIES_FORMAT));
 	g_variant_builder_add (&entries_builder, "q", SOUP_CACHE_CURRENT_VERSION);
@@ -1497,6 +1728,37 @@ soup_cache_dump (SoupCache *cache)
 	g_free (filename);
 	g_variant_unref (cache_variant);
 }
+
+#if ENABLE(TIZEN_TV_SOUP_CACHE_CLEAN_LEAKED_RESOURCES)
+static inline guint32
+get_key_from_cache_filename (const char *name)
+{
+	guint64 key;
+
+	key = g_ascii_strtoull (name, NULL, 10);
+	return key ? (guint32)key : 0;
+}
+
+static void
+insert_cache_file (SoupCache *cache, const char *name, GHashTable *leaked_entries)
+{
+	gchar *path;
+
+	path = g_build_filename (cache->priv->cache_dir, name, NULL);
+#if !ENABLE(TIZEN_TV_SOUP_CACHE_OPTIMISE_LOAD_TIME)
+	if (g_file_test (path, G_FILE_TEST_IS_REGULAR))
+#endif
+	{
+		guint32 key = get_key_from_cache_filename (name);
+
+		if (key) {
+			g_hash_table_insert (leaked_entries, GUINT_TO_POINTER (key), path);
+			return;
+		}
+	}
+	g_free (path);
+}
+#endif
 
 /**
  * soup_cache_load:
@@ -1519,7 +1781,17 @@ soup_cache_load (SoupCache *cache)
 	SoupCacheEntry *entry;
 	SoupCachePrivate *priv = cache->priv;
 	guint16 version, status_code;
-
+#if ENABLE(TIZEN_TV_SOUP_CACHE_CLEAN_LEAKED_RESOURCES)
+	GHashTable *leaked_entries = NULL;
+	GHashTableIter iter;
+	gpointer value;
+#endif
+#if ENABLE(TIZEN_TV_CHECKING_DELETED_ENTRY_FILE)
+	GFile *file = NULL;
+#endif
+#if ENABLE(TIZEN_USER_AGENT_CHECK_IN_CACHE)
+	const char *ua;
+#endif
 	filename = g_build_filename (priv->cache_dir, SOUP_CACHE_FILE, NULL);
 	if (!g_file_get_contents (filename, &contents, &length, NULL)) {
 		g_free (filename);
@@ -1539,10 +1811,26 @@ soup_cache_load (SoupCache *cache)
 		return;
 	}
 
+#if ENABLE(TIZEN_TV_SOUP_CACHE_CLEAN_LEAKED_RESOURCES)
+	leaked_entries = g_hash_table_new_full (g_direct_hash, g_direct_equal, NULL, g_free);
+#if ENABLE(TIZEN_TV_SOUP_CACHE_OPTIMISE_LOAD_TIME)
+	soup_cache_foreach_regular_file (cache, (SoupCacheForeachFileFunc)insert_cache_file, leaked_entries);
+#else
+	soup_cache_foreach_file (cache, (SoupCacheForeachFileFunc)insert_cache_file, leaked_entries);
+#endif
+#endif
+
+#if ENABLE(TIZEN_USER_AGENT_CHECK_IN_CACHE)
+	while (g_variant_iter_loop (entries_iter, SOUP_CACHE_PHEADERS_FORMAT,
+				    &url, &must_revalidate, &freshness_lifetime, &corrected_initial_age,
+				    &response_time, &hits, &length, &status_code, &ua,
+				    &headers_iter)) {
+#else
 	while (g_variant_iter_loop (entries_iter, SOUP_CACHE_PHEADERS_FORMAT,
 				    &url, &must_revalidate, &freshness_lifetime, &corrected_initial_age,
 				    &response_time, &hits, &length, &status_code,
 				    &headers_iter)) {
+#endif
 		const char *header_key, *header_value;
 		SoupMessageHeaders *headers;
 		SoupMessageHeadersIter soup_headers_iter;
@@ -1571,10 +1859,43 @@ soup_cache_load (SoupCache *cache)
 		entry->length = length;
 		entry->headers = headers;
 		entry->status_code = status_code;
+#if ENABLE(TIZEN_TV_CHECKING_DELETED_ENTRY_FILE)
+		entry->key = get_cache_key_from_uri ((const char *) entry->uri);
+
+#if ENABLE(TIZEN_TV_SOUP_CACHE_OPTIMISE_LOAD_TIME) && ENABLE(TIZEN_TV_SOUP_CACHE_CLEAN_LEAKED_RESOURCES)
+		// Check against "leaked_entries" to see if the file exists.  This avoids the need to call g_file_query_exists(), which is much slower.
+		if (g_hash_table_lookup(leaked_entries, GUINT_TO_POINTER(entry->key)) == NULL) {
+			soup_cache_entry_free (entry);
+			continue;
+		}
+#else
+		file = get_file_from_entry (cache, entry);
+		if (file) {
+			gboolean file_exist = g_file_query_exists (file, NULL);
+			g_object_unref(file);
+			if (!file_exist) {
+				soup_cache_entry_free (entry);
+				continue;
+			}
+		}
+#endif
+#endif
 
 		if (!soup_cache_entry_insert (cache, entry, FALSE))
 			soup_cache_entry_free (entry);
+#if ENABLE(TIZEN_TV_SOUP_CACHE_CLEAN_LEAKED_RESOURCES)
+		else
+			g_hash_table_remove (leaked_entries, GUINT_TO_POINTER (entry->key));
+#endif
 	}
+
+	/* Remove the leaked files */
+#if ENABLE(TIZEN_TV_SOUP_CACHE_CLEAN_LEAKED_RESOURCES)
+	g_hash_table_iter_init (&iter, leaked_entries);
+	while (g_hash_table_iter_next (&iter, NULL, &value))
+		g_unlink ((char *)value);
+	g_hash_table_destroy (leaked_entries);
+#endif
 
 	cache->priv->lru_start = g_list_reverse (cache->priv->lru_start);
 
@@ -1615,3 +1936,17 @@ soup_cache_get_max_size (SoupCache *cache)
 {
 	return cache->priv->max_size;
 }
+
+#if ENABLE (TIZEN_UPDATE_CACHE_ENTRY_CONTENT_TYPE_HEADER)
+void soup_cache_entry_set_content_type (SoupSession *session, SoupMessage *msg, const char *content_type)
+{
+	SoupCacheEntry *entry;
+	SoupCache *cache = (SoupCache *)soup_session_get_feature (session, SOUP_TYPE_CACHE);
+
+	g_return_if_fail (SOUP_IS_CACHE (cache));
+
+	entry = soup_cache_entry_lookup (cache, msg);
+	if (entry)
+	    soup_message_headers_replace (entry->headers, "Content-Type", content_type);
+}
+#endif

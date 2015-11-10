@@ -13,6 +13,7 @@
 
 #include "soup-cookie-jar.h"
 #include "soup.h"
+#include "TIZEN.h"
 
 /**
  * SECTION:soup-cookie-jar
@@ -636,6 +637,10 @@ process_set_cookie_header (SoupMessage *msg, gpointer user_data)
 	SoupCookieJarPrivate *priv = SOUP_COOKIE_JAR_GET_PRIVATE (jar);
 	GSList *new_cookies, *nc;
 
+	if (!priv) {
+		TIZEN_LOGI("error SoupCookieJar is null");
+		return;
+	}
 	if (priv->accept_policy == SOUP_COOKIE_JAR_ACCEPT_NEVER)
 		return;
 

@@ -16,6 +16,7 @@
 #include "soup-cookie-jar-text.h"
 #include "soup.h"
 
+#include "TIZEN.h"
 /**
  * SECTION:soup-cookie-jar-text
  * @short_description: Text-file-based ("cookies.txt") Cookie Jar
@@ -135,7 +136,18 @@ parse_cookie (char *line, time_t now)
 	if (g_str_has_prefix (line, "#HttpOnly_")) {
 		http_only = TRUE;
 		line += strlen ("#HttpOnly_");
+#if ENABLE(TIZEN_TV_FIX_TEXT_STORAGE_MODE_OF_COOKIE)
+	/* For file:// protocol, When use document.cookie to get/set cookie.
+	* host(first field of cookie string) will be empty.'\t' has been
+	* used as a separator to split each field. Because host is empty,
+	* the first char of cookie string will be '\t'. it may cause
+	* parse_cookie() interrupted and returned. This modification can
+	* make cookie parsing normally for file:// protocol.
+	*/
+	} else if (*line == '#')
+#else
 	} else if (*line == '#' || g_ascii_isspace (*line))
+#endif
 		return cookie;
 	else
 		http_only = FALSE;

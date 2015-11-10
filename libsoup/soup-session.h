@@ -82,6 +82,12 @@ GType soup_session_get_type (void);
 #define SOUP_SESSION_REMOVE_FEATURE_BY_TYPE "remove-feature-by-type"
 #define SOUP_SESSION_HTTP_ALIASES       "http-aliases"
 #define SOUP_SESSION_HTTPS_ALIASES      "https-aliases"
+/*#if ENABLE(TIZEN_CERTIFICATE_FILE_SET)*/
+#define SOUP_SESSION_CERTIFICATE_PATH        "certificate-path"
+/*#endif*/
+//#if ENABLE(TIZEN_TV_CLIENT_CERTIFICATE)
+#define SOUP_SESSION_WIDGET_ENGINE          "widget-engine"
+//#endif
 
 SOUP_AVAILABLE_IN_2_42
 SoupSession    *soup_session_new              (void);
@@ -193,6 +199,13 @@ SoupRequestHTTP *soup_session_request_http_uri (SoupSession  *session,
 						const char   *method,
 						SoupURI      *uri,
 						GError      **error);
+//#if ENABLE(TIZEN_TV_CERTIFICATE_HANDLING)
+gboolean
+re_emit_connection_accept_certificate          (SoupConnection      *conn,
+						GTlsCertificate     *certificate,
+						GTlsCertificateFlags errors,
+						gpointer             user_data);
+//#endif
 
 SOUP_AVAILABLE_IN_2_42
 GQuark soup_request_error_quark (void);
@@ -204,6 +217,17 @@ typedef enum {
 	SOUP_REQUEST_ERROR_PARSING,
 	SOUP_REQUEST_ERROR_ENCODING
 } SoupRequestError;
+
+//#if ENABLE(TIZEN_TV_DYNAMIC_CERTIFICATE_LOADING)
+const char*
+re_emit_connection_dynamic_client_certificate (SoupConnection      *conn,
+					       const char* current_host,
+					       gpointer user_data);
+//#endif
+//#if ENABLE(TIZEN_TV_CREATE_IDLE_TCP_CONNECTION)
+void
+soup_session_create_idle_connection(SoupSession *session, SoupURI *uri);
+//#endif
 
 G_END_DECLS
 

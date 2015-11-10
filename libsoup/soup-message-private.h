@@ -148,4 +148,18 @@ SoupConnection *soup_message_get_connection (SoupMessage    *msg);
 void            soup_message_set_connection (SoupMessage    *msg,
 					     SoupConnection *conn);
 
+// #if ENABL(TIZEN_CERTIFICATE_FILE_SET)
+gboolean		soup_message_is_from_session_restore (SoupMessage *msg);
+// #endif
+
+//#if ENABLE(TIZEN_TV_DYNAMIC_CERTIFICATE_LOADING)
+const char* soup_message_dynamic_client_certificate (SoupMessage         *msg,
+						     const char* current_host);
+//#endif
+//#if ENABLE(TIZEN_TV_CERTIFICATE_HANDLING)
+gboolean soup_message_accept_certificate (SoupMessage         *msg,
+					  GTlsCertificate* certificate,
+					  GTlsCertificateFlags errors);
+//#endif
+
 #endif /* SOUP_MESSAGE_PRIVATE_H */

@@ -4,13 +4,13 @@
 Name:           libsoup
 Version:        2.46.0
 Release:        0
-License:        LGPL-2.1+
+License:        LGPL-2.0+
 Summary:        HTTP client/server library for GNOME
 Url:            http://www.gnome.org
 Group:          System/Libraries
 Source:         http://download.gnome.org/sources/libsoup/2.41/%{name}-%{version}.tar.xz
 Source99:       baselibs.conf
-Source1001: 	libsoup.manifest
+Source1001:     libsoup.manifest
 Requires:       glib-networking
 BuildRequires:  gettext-tools
 BuildRequires:  glib-networking
@@ -19,13 +19,14 @@ BuildRequires:  gobject-introspection-devel
 %endif
 %if %{with gnome}
 BuildRequires:  pkgconfig(gnome-keyring-1)
+BuildRequires:  gnome-common
 %endif
 BuildRequires:  intltool >= 0.35.0
-BuildRequires:  sqlite3-devel
+BuildRequires:  sqlite-devel
+BuildRequires:  which
 BuildRequires:  pkgconfig(glib-2.0) >= 2.35.0
-BuildRequires:  gnome-common
 BuildRequires:  pkgconfig(libxml-2.0)
-
+BuildRequires:  pkgconfig(dlog)
 
 %description
 Libsoup is an HTTP client/server library for GNOME. It uses GObjects
@@ -88,7 +89,26 @@ chmod +x autogen.sh
     --enable-sqlite=yes \
     --disable-tls-check \
 %endif
-    --disable-static 
+%if "%{?tizen_profile_name}" == "tv"
+    --enable-tizen-client-certificate=yes \
+    --enable-tizen-disable-mime-sniff \
+    --enable-tizen-text-storage-mode-of-cookie \
+    --enable-tizen-soup-cache-clean-leaked-resources \
+    --enable-tizen-tv-soup-cache-optimise-load-time \
+    --enable-tizen-use-expanded-response-block=yes \
+    --enable-tizen-create-idle-tcp-connection \
+    --enable-tizen-immediate-requesting \
+    --enable-tizen-computing-disk-cache-size \
+    --enable-tizen-add-x-soup-message-headers \
+    --enable-tizen-dynamic-certificate-loading \
+    --enable-tizen-certificate-handling \
+    --enable-tizen-tv-checking-deleted-entry-file \
+    --enable-tizen-tv-force-preload-tlsdb \
+    --enable-tizen-tv-no-cache-about-video-and-audio \
+    --enable-tizen-performance-test-log \
+    --enable-tizen-tv-adjust-time \
+%endif
+    --disable-static
 make %{?_smp_mflags}
 
 %install
@@ -105,7 +125,7 @@ make %{?_smp_mflags}
 %files
 %manifest %{name}.manifest
 %defattr(-, root, root)
-%license COPYING
+%doc COPYING
 %{_libdir}/*.so.*
 
 %if %{with introspection}

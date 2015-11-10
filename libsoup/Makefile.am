@@ -18,6 +18,10 @@ AM_CPPFLAGS = 				\
 	$(XML_CFLAGS)			\
 	$(SQLITE_CFLAGS)
 
+if TIZEN_DLOG
+AM_CPPFLAGS +=			\
+	$(TIZEN_DLOG_CFLAGS)
+endif
 
 libsoupincludedir = $(includedir)/libsoup-2.4/libsoup
 
@@ -103,6 +107,11 @@ libsoup_2_4_la_LIBADD =			\
 
 libsoup_2_4_la_LIBADD +=        \
     $(SQLITE_LIBS)
+
+if TIZEN_DLOG
+libsoup_2_4_la_LIBADD +=		\
+	$(TIZEN_DLOG_LIBS)
+endif
 
 libsoup_2_4_la_SOURCES =		\
 	soup-address.c			\
