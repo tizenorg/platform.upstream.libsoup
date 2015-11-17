@@ -370,6 +370,22 @@ AC_MSG_RESULT($enable_tizen_disable_mime_sniff)
 
 AM_CONDITIONAL(TIZEN_TV_DISABLE_MIME_SNIFF, [test $enable_tizen_disable_mime_sniff = yes])
 
+dnl ****************************
+dnl *** Tizen soup store dns ***
+dnl ****************************
+
+AC_ARG_ENABLE(tizen-soup-store-dns,
+        AS_HELP_STRING([--enable-tizen-soup-store-dns], [Enable Tizen soup store dns ]),        ,
+        enable_tizen_soup_store_dns=no)
+
+AC_MSG_CHECKING([for Tizen soup store dns])
+if test $enable_tizen_soup_store_dns != no;then
+        AC_DEFINE(ENABLE_TIZEN_TV_SOUP_STORE_DNS, 1, [Maintain a DNS cache in soup library  to reduce DNS request time])
+fi
+AC_MSG_RESULT($enable_tizen_soup_store_dns)
+
+AM_CONDITIONAL(TIZEN_TV_SOUP_STORE_DNS, [test $enable_tizen_soup_store_dns = yes])
+
 dnl ***********************************************
 dnl *** Tizen support soup immediate requesting ***
 dnl ***********************************************

@@ -16,6 +16,14 @@
 #include "soup-address.h"
 #include "soup.h"
 #include "soup-misc-private.h"
+#include "TIZEN.h"
+
+#if ENABLE(TIZEN_TV_SOUP_STORE_DNS)
+#include <sys/socket.h>
+#include <time.h>
+#include "soup-session.h"
+#include "glib.h"
+#endif
 
 /**
  * SECTION:soup-address
@@ -53,6 +61,16 @@ typedef struct {
 
 	GMutex lock;
 } SoupAddressPrivate;
+
+#if ENABLE(TIZEN_TV_SOUP_STORE_DNS)
+typedef struct {
+	gchar *key;
+	gchar *ip;
+	time_t time;
+	guint port;
+} IPAndPort;
+#endif
+
 #define SOUP_ADDRESS_GET_PRIVATE(o) (G_TYPE_INSTANCE_GET_PRIVATE ((o), SOUP_TYPE_ADDRESS, SoupAddressPrivate))
 
 /* sockaddr generic macros */
@@ -94,6 +112,14 @@ typedef struct {
 #define SOUP_ADDRESS_SET_DATA(priv, data, length) \
 	memcpy (SOUP_ADDRESS_GET_DATA (priv), data, length)
 
+#if ENABLE(TIZEN_TV_SOUP_STORE_DNS)
+#define DNS_CACHE_HASHTABLE_MAX_COUNT 30
+#define DNS_CACHE_MAX_TIME_SECOND 60
+static GHashTable *dns_cache = NULL;
+static GList *hostkey = NULL;
+static IPAndPort* ipandport_cache_new (gchar *key, gchar *ip, time_t time, guint port);
+static void ipandport_cache_free (IPAndPort* ipandport);
+#endif
 
 static void soup_address_connectable_iface_init (GSocketConnectableIface *connectable_iface);
 
@@ -621,6 +647,16 @@ update_addrs (SoupAddress *addr, GList *addrs, GError *error)
 	GSocketAddress *gsa;
 	int i;
 
+#if ENABLE(TIZEN_TV_SOUP_STORE_DNS)
+	IPAndPort *ipandport = NULL;
+	IPAndPort *oldipandport = NULL;
+	IPAndPort *deloldipandport = NULL;
+	gchar *tempIPaddress = NULL;
+	time_t timep;
+	int hashtablecount = 0;
+	GList *templist = NULL;
+#endif
+
 	if (error) {
 		if (error->domain == G_IO_ERROR &&
 		    error->code == G_IO_ERROR_CANCELLED)
@@ -636,6 +672,40 @@ update_addrs (SoupAddress *addr, GList *addrs, GError *error)
 	priv->sockaddr = g_new (struct sockaddr_storage, priv->n_addrs);
 	for (i = 0; addrs; addrs = addrs->next, i++) {
 		gia = addrs->data;
+#if ENABLE(TIZEN_TV_SOUP_STORE_DNS)
+		if ((0 == i) && (!addrs->next) && (dns_cache)) {
+			tempIPaddress = g_inet_address_to_string (gia);
+			oldipandport = g_hash_table_lookup (dns_cache, priv->name);
+			if (oldipandport) {
+				time (&timep);
+				hostkey = g_list_remove (hostkey, oldipandport->key);
+				oldipandport->time = timep;
+				hostkey = g_list_append (hostkey, oldipandport->key);
+			} else {
+				hashtablecount = g_hash_table_size (dns_cache);
+				if (hashtablecount < DNS_CACHE_HASHTABLE_MAX_COUNT) {
+					time (&timep);
+					ipandport = ipandport_cache_new (priv->name, tempIPaddress, timep, priv->port );
+					g_hash_table_insert (dns_cache, ipandport->key, ipandport);
+					hostkey = g_list_append (hostkey, ipandport->key);
+				} else {
+					templist = g_list_first (hostkey);
+					if (templist) {
+						deloldipandport = g_hash_table_lookup (dns_cache, templist->data);
+						if (deloldipandport) {
+							time (&timep);
+							hostkey = g_list_remove (hostkey, deloldipandport->key);
+							g_hash_table_remove (dns_cache, deloldipandport->key);
+							ipandport_cache_free (deloldipandport);
+							ipandport = ipandport_cache_new (priv->name, tempIPaddress, timep, priv->port);
+							g_hash_table_insert (dns_cache, ipandport->key, ipandport);
+							hostkey = g_list_append (hostkey, ipandport->key);
+						}
+					}
+				}
+			}
+		}
+#endif
 		gsa = g_inet_socket_address_new (gia, priv->port);
 
 		if (!g_socket_address_to_native (gsa, &priv->sockaddr[i],
@@ -754,6 +824,30 @@ idle_complete_resolve (gpointer res_data)
 	return FALSE;
 }
 
+#if ENABLE(TIZEN_TV_SOUP_STORE_DNS)
+static IPAndPort* ipandport_cache_new (gchar *key, gchar *ip, time_t time, guint port)
+{
+	IPAndPort *ipandport;
+	ipandport = g_new (IPAndPort, 1);
+	ipandport->key = g_strdup (key);
+	ipandport->ip = g_strdup (ip);
+	ipandport->time = time;
+	ipandport->port = port;
+	return ipandport;
+}
+
+static void ipandport_cache_free (IPAndPort* ipandport)
+{
+	g_return_if_fail (ipandport != NULL);
+	g_free (ipandport->key);
+	g_free (ipandport->ip);
+	g_free (ipandport);
+	ipandport->key = NULL;
+	ipandport->ip = NULL;
+	ipandport = NULL;
+}
+#endif
+
 /**
  * SoupAddressCallback:
  * @addr: the #SoupAddress that was resolved
@@ -797,6 +891,13 @@ soup_address_resolve_async (SoupAddress *addr, GMainContext *async_context,
 	SoupAddressResolveAsyncData *res_data;
 	GResolver *resolver;
 
+#if ENABLE(TIZEN_TV_SOUP_STORE_DNS)
+	IPAndPort *ipandport = NULL;
+	time_t timep;
+	GList *addrs;
+	guint status;
+#endif
+
 	g_return_if_fail (SOUP_IS_ADDRESS (addr));
 	priv = SOUP_ADDRESS_GET_PRIVATE (addr);
 	g_return_if_fail (priv->name || priv->sockaddr);
@@ -823,10 +924,34 @@ soup_address_resolve_async (SoupAddress *addr, GMainContext *async_context,
 	else {
 		resolver = g_resolver_get_default ();
 
+#if ENABLE(TIZEN_TV_SOUP_STORE_DNS)
+		if (!dns_cache)
+			dns_cache = g_hash_table_new (g_str_hash, g_str_equal);
+#endif
+
 		if (priv->name) {
-			g_resolver_lookup_by_name_async (resolver, priv->name,
-							 cancellable,
-							 lookup_resolved, res_data);
+#if ENABLE(TIZEN_TV_SOUP_STORE_DNS)
+			if (dns_cache)
+				ipandport = g_hash_table_lookup (dns_cache, priv->name);
+			if (ipandport) {
+				time (&timep);
+				if((timep - ipandport->time) <= DNS_CACHE_MAX_TIME_SECOND){
+					addrs = g_resolver_lookup_by_name (resolver, ipandport->ip, cancellable, NULL);
+					status = update_addrs (res_data->addr, addrs, NULL);
+					complete_resolve_async (res_data, status);
+				} else {
+					g_resolver_lookup_by_name_async (resolver, priv->name,
+					cancellable,
+					lookup_resolved, res_data);
+				}
+			} else {
+#endif
+				g_resolver_lookup_by_name_async (resolver, priv->name,
+								 cancellable,
+								 lookup_resolved, res_data);
+#if ENABLE(TIZEN_TV_SOUP_STORE_DNS)
+			}
+#endif
 		} else {
 			GInetAddress *gia;
 
