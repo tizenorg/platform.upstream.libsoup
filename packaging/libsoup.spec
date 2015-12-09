@@ -89,7 +89,7 @@ chmod +x autogen.sh
     --enable-sqlite=yes \
     --disable-tls-check \
 %endif
-%if "%{?tizen_profile_name}" == "tv"
+%if "%{?profile}" == "tv"
     --enable-tizen-client-certificate=yes \
     --enable-tizen-disable-mime-sniff \
     --enable-tizen-text-storage-mode-of-cookie \
