@@ -65,10 +65,10 @@ typedef struct {
 #if ENABLE(TIZEN_TV_SOUP_STORE_DNS)
 typedef struct {
 	gchar *key;
-	gchar *ip;
+	GList *ip;
 	time_t time;
 	guint port;
-} IPAndPort;
+} DnsCacheItem;
 #endif
 
 #define SOUP_ADDRESS_GET_PRIVATE(o) (G_TYPE_INSTANCE_GET_PRIVATE ((o), SOUP_TYPE_ADDRESS, SoupAddressPrivate))
@@ -113,12 +113,14 @@ typedef struct {
 	memcpy (SOUP_ADDRESS_GET_DATA (priv), data, length)
 
 #if ENABLE(TIZEN_TV_SOUP_STORE_DNS)
-#define DNS_CACHE_HASHTABLE_MAX_COUNT 30
+#define DNS_CACHE_MAX_COUNT 30
 #define DNS_CACHE_MAX_TIME_SECOND 60
+#define MULTI_IP_MAX_TIME_SECOND 30
 static GHashTable *dns_cache = NULL;
-static GList *hostkey = NULL;
-static IPAndPort* ipandport_cache_new (gchar *key, gchar *ip, time_t time, guint port);
-static void ipandport_cache_free (IPAndPort* ipandport);
+static GList *host_key = NULL;
+
+static DnsCacheItem* dns_cache_item_new (gchar *key, GList *ip, time_t time, guint port);
+static void dns_cache_item_free (DnsCacheItem* item);
 #endif
 
 static void soup_address_connectable_iface_init (GSocketConnectableIface *connectable_iface);
@@ -638,6 +640,95 @@ maybe_resolve_ip (SoupAddress *addr)
 	g_object_unref (gaddr);
 }
 
+#if ENABLE(TIZEN_TV_SOUP_STORE_DNS)
+static void
+update_host_key_rank(DnsCacheItem *item)
+{
+	time_t timep;
+
+	time (&timep);
+	item->time = timep;
+	host_key = g_list_remove (host_key, item->key);
+	host_key = g_list_append (host_key, item->key);
+}
+
+static void
+dns_cache_item_insert(SoupAddress *addr, GList *addrs)
+{
+	SoupAddressPrivate *priv = SOUP_ADDRESS_GET_PRIVATE (addr);
+	DnsCacheItem *item = NULL;
+	time_t timep;
+
+	time (&timep);
+	item = dns_cache_item_new (priv->name, addrs, timep, priv->port );
+	g_hash_table_insert (dns_cache, item->key, item);
+	host_key = g_list_append (host_key, item->key);
+}
+
+static gboolean
+dns_cache_remove_oldest_item()
+{
+	GList *temp_list = NULL;
+	DnsCacheItem *del_old_item = NULL;
+
+	temp_list = g_list_first (host_key);
+	if (temp_list) {
+		del_old_item = g_hash_table_lookup (dns_cache, temp_list->data);
+		if (del_old_item) {
+			host_key = g_list_remove (host_key, del_old_item->key);
+			g_hash_table_remove (dns_cache, del_old_item->key);
+			dns_cache_item_free (del_old_item);
+			return TRUE;
+		}
+	}
+	return FALSE;
+}
+
+static void
+update_dns_cache (SoupAddress *addr, GList *addrs)
+{
+	SoupAddressPrivate *priv = SOUP_ADDRESS_GET_PRIVATE (addr);
+	DnsCacheItem *old_item = NULL;
+	int dns_cache_count = 0;
+
+	old_item = g_hash_table_lookup (dns_cache, priv->name);
+	if (old_item) {
+		update_host_key_rank (old_item);
+		return;
+	}
+
+	dns_cache_count = g_hash_table_size (dns_cache);
+	if (dns_cache_count < DNS_CACHE_MAX_COUNT)
+		dns_cache_item_insert (addr, addrs);
+	else {
+		if (dns_cache_remove_oldest_item ())
+			dns_cache_item_insert (addr, addrs);
+	}
+}
+
+static GList *
+get_dns_from_cache (SoupAddress *addr)
+{
+	SoupAddressPrivate *priv = SOUP_ADDRESS_GET_PRIVATE (addr);
+	DnsCacheItem *item = NULL;
+	time_t timep;
+	int len;
+	int d_value;
+
+	if (dns_cache)
+		item = g_hash_table_lookup (dns_cache, priv->name);
+
+	if (item) {
+		time (&timep);
+		len = g_list_length (item->ip);
+		d_value = timep - item->time;
+		// The expiration time for multi ip is 30s; the expiration time for single ip is 60s
+		if (d_value <= MULTI_IP_MAX_TIME_SECOND || len == 1 && d_value <= DNS_CACHE_MAX_TIME_SECOND)
+			return item->ip;
+	}
+	return NULL;
+}
+#endif
 
 static guint
 update_addrs (SoupAddress *addr, GList *addrs, GError *error)
@@ -646,17 +737,9 @@ update_addrs (SoupAddress *addr, GList *addrs, GError *error)
 	GInetAddress *gia;
 	GSocketAddress *gsa;
 	int i;
-
 #if ENABLE(TIZEN_TV_SOUP_STORE_DNS)
-	IPAndPort *ipandport = NULL;
-	IPAndPort *oldipandport = NULL;
-	IPAndPort *deloldipandport = NULL;
-	gchar *tempIPaddress = NULL;
-	time_t timep;
-	int hashtablecount = 0;
-	GList *templist = NULL;
+	GList *ip_addrs = addrs;
 #endif
-
 	if (error) {
 		if (error->domain == G_IO_ERROR &&
 		    error->code == G_IO_ERROR_CANCELLED)
@@ -672,40 +755,6 @@ update_addrs (SoupAddress *addr, GList *addrs, GError *error)
 	priv->sockaddr = g_new (struct sockaddr_storage, priv->n_addrs);
 	for (i = 0; addrs; addrs = addrs->next, i++) {
 		gia = addrs->data;
-#if ENABLE(TIZEN_TV_SOUP_STORE_DNS)
-		if ((0 == i) && (!addrs->next) && (dns_cache)) {
-			tempIPaddress = g_inet_address_to_string (gia);
-			oldipandport = g_hash_table_lookup (dns_cache, priv->name);
-			if (oldipandport) {
-				time (&timep);
-				hostkey = g_list_remove (hostkey, oldipandport->key);
-				oldipandport->time = timep;
-				hostkey = g_list_append (hostkey, oldipandport->key);
-			} else {
-				hashtablecount = g_hash_table_size (dns_cache);
-				if (hashtablecount < DNS_CACHE_HASHTABLE_MAX_COUNT) {
-					time (&timep);
-					ipandport = ipandport_cache_new (priv->name, tempIPaddress, timep, priv->port );
-					g_hash_table_insert (dns_cache, ipandport->key, ipandport);
-					hostkey = g_list_append (hostkey, ipandport->key);
-				} else {
-					templist = g_list_first (hostkey);
-					if (templist) {
-						deloldipandport = g_hash_table_lookup (dns_cache, templist->data);
-						if (deloldipandport) {
-							time (&timep);
-							hostkey = g_list_remove (hostkey, deloldipandport->key);
-							g_hash_table_remove (dns_cache, deloldipandport->key);
-							ipandport_cache_free (deloldipandport);
-							ipandport = ipandport_cache_new (priv->name, tempIPaddress, timep, priv->port);
-							g_hash_table_insert (dns_cache, ipandport->key, ipandport);
-							hostkey = g_list_append (hostkey, ipandport->key);
-						}
-					}
-				}
-			}
-		}
-#endif
 		gsa = g_inet_socket_address_new (gia, priv->port);
 
 		if (!g_socket_address_to_native (gsa, &priv->sockaddr[i],
@@ -719,6 +768,10 @@ update_addrs (SoupAddress *addr, GList *addrs, GError *error)
 		g_object_unref (gsa);
 	}
 
+#if ENABLE(TIZEN_TV_SOUP_STORE_DNS)
+	if (dns_cache)
+		update_dns_cache (addr,ip_addrs);
+#endif
 	return SOUP_STATUS_OK;
 }
 
@@ -825,26 +878,30 @@ idle_complete_resolve (gpointer res_data)
 }
 
 #if ENABLE(TIZEN_TV_SOUP_STORE_DNS)
-static IPAndPort* ipandport_cache_new (gchar *key, gchar *ip, time_t time, guint port)
+static DnsCacheItem* dns_cache_item_new (gchar *key, GList *addrs, time_t time, guint port)
 {
-	IPAndPort *ipandport;
-	ipandport = g_new (IPAndPort, 1);
-	ipandport->key = g_strdup (key);
-	ipandport->ip = g_strdup (ip);
-	ipandport->time = time;
-	ipandport->port = port;
-	return ipandport;
+	DnsCacheItem *item;
+	GList *a;
+
+	item = g_new (DnsCacheItem, 1);
+	item->key = g_strdup (key);
+	item->time = time;
+	item->port = port;
+	item->ip = g_list_copy (addrs);
+
+	for (a = addrs; a; a = a->next)
+		g_object_ref (a->data);
+	return item;
 }
 
-static void ipandport_cache_free (IPAndPort* ipandport)
+static void dns_cache_item_free (DnsCacheItem* item)
 {
-	g_return_if_fail (ipandport != NULL);
-	g_free (ipandport->key);
-	g_free (ipandport->ip);
-	g_free (ipandport);
-	ipandport->key = NULL;
-	ipandport->ip = NULL;
-	ipandport = NULL;
+	g_return_if_fail (item != NULL);
+	g_free (item->key);
+	g_list_free_full (item->ip, g_object_unref);
+	item->key = NULL;
+	item->ip = NULL;
+	g_free (item);
 }
 #endif
 
@@ -892,10 +949,8 @@ soup_address_resolve_async (SoupAddress *addr, GMainContext *async_context,
 	GResolver *resolver;
 
 #if ENABLE(TIZEN_TV_SOUP_STORE_DNS)
-	IPAndPort *ipandport = NULL;
-	time_t timep;
-	GList *addrs;
 	guint status;
+	GList *addrs = NULL;
 #endif
 
 	g_return_if_fail (SOUP_IS_ADDRESS (addr));
@@ -931,19 +986,10 @@ soup_address_resolve_async (SoupAddress *addr, GMainContext *async_context,
 
 		if (priv->name) {
 #if ENABLE(TIZEN_TV_SOUP_STORE_DNS)
-			if (dns_cache)
-				ipandport = g_hash_table_lookup (dns_cache, priv->name);
-			if (ipandport) {
-				time (&timep);
-				if((timep - ipandport->time) <= DNS_CACHE_MAX_TIME_SECOND){
-					addrs = g_resolver_lookup_by_name (resolver, ipandport->ip, cancellable, NULL);
-					status = update_addrs (res_data->addr, addrs, NULL);
-					complete_resolve_async (res_data, status);
-				} else {
-					g_resolver_lookup_by_name_async (resolver, priv->name,
-					cancellable,
-					lookup_resolved, res_data);
-				}
+			addrs = get_dns_from_cache (addr);
+			if (addrs) {
+				status = update_addrs (res_data->addr, addrs, NULL);
+				complete_resolve_async (res_data, status);
 			} else {
 #endif
 				g_resolver_lookup_by_name_async (resolver, priv->name,
