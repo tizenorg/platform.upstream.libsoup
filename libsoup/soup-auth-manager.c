@@ -453,6 +453,12 @@ lookup_auth (SoupAuthManagerPrivate *priv, SoupMessage *msg)
 	path = soup_message_get_uri (msg)->path;
 	if (!path)
 		path = "/";
+
+#if ENABLE(TIZEN_EXT)
+	if (!host->auth_realms)
+		return NULL;
+#endif
+
 	realm = soup_path_map_lookup (host->auth_realms, path);
 	if (realm)
 		return g_hash_table_lookup (host->auths, realm);
