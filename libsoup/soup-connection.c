@@ -1124,7 +1124,7 @@ soup_connection_set_pre_connect_idle (SoupConnection *conn)
 {
 	SoupConnectionPrivate *priv = NULL;
 
-	g_return_val_if_fail (SOUP_IS_CONNECTION (conn), FALSE);
+	g_return_if_fail (SOUP_IS_CONNECTION (conn));
 	priv = SOUP_CONNECTION_GET_PRIVATE (conn);
 
 	if (priv) {
