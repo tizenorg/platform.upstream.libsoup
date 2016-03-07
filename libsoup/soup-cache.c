@@ -1451,7 +1451,11 @@ soup_cache_foreach_regular_file (SoupCache *cache, SoupCacheForeachFileFunc func
 	dir = opendir(priv->cache_dir);
 	if (dir) {
 		struct dirent *dp;
-		while ((dp = readdir(dir)) != NULL) {
+		struct dirent dent_buf;
+		while (!readdir_r(dir, &dent_buf, &dp) && dp) {
+			if (!strcmp(dp->d_name, ".") || !strcmp(dp->d_name, ".."))
+				continue;
+
 			name = dp->d_name;
 			if (g_str_has_prefix (name, "soup."))
 				continue;
