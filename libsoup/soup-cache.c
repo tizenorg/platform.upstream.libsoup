@@ -348,10 +348,10 @@ static guint
 soup_cache_entry_update_corrected_initial_age (SoupCacheEntry *entry)
 {
 	SoupDate *soup_date;
-	char *age, *date;
+	const char *age, *date;
 	time_t date_value, apparent_age, corrected_received_age, age_value = 0;
 
-	date = soup_message_headers_get (entry->headers, "Date");
+	date = soup_message_headers_get_one (entry->headers, "Date");
 
 	if (date) {
 		soup_date = soup_date_new_from_string (date);
