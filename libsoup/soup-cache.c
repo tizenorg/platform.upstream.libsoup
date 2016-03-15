@@ -348,10 +348,10 @@ static guint
 soup_cache_entry_update_corrected_initial_age (SoupCacheEntry *entry)
 {
 	SoupDate *soup_date;
-	char *age, *date;
+	const char *age, *date;
 	time_t date_value, apparent_age, corrected_received_age, age_value = 0;
 
-	date = soup_message_headers_get (entry->headers, "Date");
+	date = soup_message_headers_get_one (entry->headers, "Date");
 
 	if (date) {
 		soup_date = soup_date_new_from_string (date);
@@ -1789,9 +1789,6 @@ soup_cache_load (SoupCache *cache)
 	GHashTable *leaked_entries = NULL;
 	GHashTableIter iter;
 	gpointer value;
-#endif
-#if ENABLE(TIZEN_TV_CHECKING_DELETED_ENTRY_FILE)
-	GFile *file = NULL;
 #endif
 #if ENABLE(TIZEN_USER_AGENT_CHECK_IN_CACHE)
 	const char *ua;

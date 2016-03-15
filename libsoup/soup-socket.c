@@ -749,7 +749,7 @@ soup_socket_class_init (SoupSocketClass *socket_class)
 
 #if ENABLE(TIZEN_TV_CLIENT_CERTIFICATE) || ENABLE(TIZEN_TV_DYNAMIC_CERTIFICATE_LOADING)
 static GTlsCertificate *
-soup_make_client_certificate(gchar* cert_file, gchar* key_file)
+soup_make_client_certificate(const gchar* cert_file, const gchar* key_file)
 {
 	GTlsCertificate* cert = NULL;
 	GError* pGError = NULL;
@@ -832,9 +832,6 @@ soup_get_client_certificate(SoupSocket *sock, const char* ssl_host, gchar*** cer
 #if ENABLE(TIZEN_TV_DYNAMIC_CERTIFICATE_LOADING)
 static GTlsCertificate *soup_get_dynamic_client_certificate(SoupSocket *sock, const char* ssl_host)
 {
-	SoupSocket *soupSock = sock;
-	GTlsCertificate* dynamic_cert = NULL;
-	GError* pGError = NULL;
 	const char* get_certpath = NULL;
 
 	g_signal_emit (sock, signals[DYNAMIC_CERTIFICATEPATH], 0, ssl_host, &get_certpath);

@@ -2226,13 +2226,13 @@ gboolean soup_message_is_from_session_restore (SoupMessage *msg)
 {
 	char *target_field = "Cache-Control";
 	char *target_value = "max-stale=86400";
-	char *value = NULL;
+	const char *value = NULL;
 
 	if (!msg)
 		return FALSE;
 
 	// This criteria to decide session restore can be changed according to WebKit.
-	value = soup_message_headers_get (msg->request_headers, target_field);
+	value = soup_message_headers_get_one (msg->request_headers, target_field);
 	if (value && !strcmp (value, target_value)) {
 		TIZEN_LOGD ("msg[%p] return TRUE", msg);
 		return TRUE;
