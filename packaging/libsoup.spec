@@ -106,7 +106,6 @@ chmod +x autogen.sh
     --enable-tizen-tv-force-preload-tlsdb \
     --enable-tizen-tv-no-cache-about-video-and-audio \
     --enable-tizen-performance-test-log \
-    --enable-tizen-tv-adjust-time \
 %endif
     --disable-static
 make %{?_smp_mflags}
