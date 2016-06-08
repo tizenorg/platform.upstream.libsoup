@@ -21,12 +21,12 @@
 #ifndef PR_TASK_PERF_USER_TRACE
 #define PR_TASK_PERF_USER_TRACE 666
 #endif
-#define MAX_STRING_LEN 256
+#define MAX_STRING_LEN 512
 
 static void prctl_with_url(const char *prestr, const char *url)
 {
 	char s[MAX_STRING_LEN] = "";
-	int len_max = 120;
+	int len_max = 450;
 	int len_pre = strlen(prestr);
 	int len_url = strlen(url);
 

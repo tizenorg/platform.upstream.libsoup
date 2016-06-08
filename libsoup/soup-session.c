@@ -29,13 +29,13 @@
 #define PR_TASK_PERF_USER_TRACE 666
 #endif
 
-#define MAX_STRING_LEN 256
+#define MAX_STRING_LEN 512
 #define HWCLOCK_LOG(s)	{const char *str=s; prctl(PR_TASK_PERF_USER_TRACE, str, strlen(str));}
 
 static void prctl_with_url(const char *prestr, const char *url)
 {
 	char s[MAX_STRING_LEN] = "";
-	int len_max = 120;
+	int len_max = 450;
 	int len_pre = strlen(prestr);
 	int len_url = strlen(url);
 
