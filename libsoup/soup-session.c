@@ -60,9 +60,6 @@ static void prctl_with_url_and_free(const char *prestr, char *url)
 #endif
 
 #define HOST_KEEP_ALIVE 5 * 60 * 1000 /* 5 min in msecs */
-#if ENABLE(TIZEN_CERTIFICATE_FILE_SET)
-#define SET_TLS_CERT_FILE_TIMEOUT 7 * 1000 /* msecs */
-#endif
 
 /**
  * SECTION:soup-session
@@ -168,7 +165,6 @@ typedef struct {
 
 	char **http_aliases, **https_aliases;
 #if ENABLE(TIZEN_CERTIFICATE_FILE_SET)
-	GSource *tls_idle_timeout_src;
 	char *certificate_path;
 #endif
 #if ENABLE(TIZEN_TV_CLIENT_CERTIFICATE)
@@ -307,7 +303,6 @@ soup_session_init (SoupSession *session)
 	priv->http_aliases[0] = (char *)g_intern_string ("*");
 	priv->http_aliases[1] = NULL;
 #if ENABLE(TIZEN_CERTIFICATE_FILE_SET)
-	priv->tls_idle_timeout_src = NULL;
 	priv->certificate_path = NULL;
 #endif
 
@@ -401,7 +396,6 @@ soup_session_finalize (GObject *object)
 	g_free (priv->ssl_ca_file);
 
 #if ENABLE(TIZEN_CERTIFICATE_FILE_SET)
-	soup_session_tls_stop_idle_timer (session);
 	g_free (priv->certificate_path);
 	priv->certificate_path = NULL;
 #endif
@@ -800,8 +794,6 @@ soup_session_set_property (GObject *object, guint prop_id,
 #if ENABLE(TIZEN_TV_FORCE_PRELOAD_TLSDB)
 			//Trigger loading of the TLS database. The load is done in a thread.
 			soup_preload_tls_database(priv->certificate_path);
-#else
-			soup_session_tls_start_idle_timer(session, SET_TLS_CERT_FILE_TIMEOUT);
 #endif
 		break;
 #endif
@@ -2098,12 +2090,7 @@ soup_session_process_queue_item (SoupSession          *session,
 		switch (item->state) {
 		case SOUP_MESSAGE_STARTING:
 #if ENABLE(TIZEN_CERTIFICATE_FILE_SET)
-			if(soup_uri_get_scheme(soup_message_get_uri(item->msg)) == SOUP_URI_SCHEME_HTTPS){
-				if (!soup_session_is_tls_db_initialized (session) && !soup_message_is_from_session_restore (item->msg)) {
-					soup_session_tls_stop_idle_timer(session);
-					soup_session_set_certificate_file(session);
-				}
-			}
+			soup_session_set_certificate_file(session, soup_message_get_uri(item->msg));
 #endif
 			if (!get_connection (item, should_cleanup))
 				return;
@@ -3138,19 +3125,14 @@ soup_preload_tls_database (const gchar *path)
 }
 #endif
 
-void soup_session_set_certificate_file(SoupSession *session)
+void soup_session_set_certificate_file(SoupSession *session, SoupURI *uri)
 {
 	SoupSessionPrivate *priv = SOUP_SESSION_GET_PRIVATE (session);
 
-	TIZEN_LOGI ("");
-
-	if (!priv->certificate_path) {
-		TIZEN_LOGI("priv->certificate_path is NULL, return!!");
+	if (!priv->certificate_path)
 		return;
-	}
 
-	if (!priv->tlsdb) {
-
+	if (soup_uri_is_https (uri, priv->https_aliases) && (!priv->tlsdb)) {
 		GError* error = NULL;
 		GTlsDatabase* tlsdb = NULL;
 
@@ -3179,6 +3161,10 @@ void soup_session_set_certificate_file(SoupSession *session)
 #endif
 			set_tlsdb (session, tlsdb);
 		}
+
+		if (error)
+			TIZEN_LOGE ("Error!! error->code: [%d], error->domain : [%d] , error->message :[%s]",
+					 error->code, error->domain, error->message);
 
 		if (tlsdb)
 			g_object_unref (tlsdb);
@@ -4918,61 +4904,7 @@ soup_request_error_quark (void)
 	return error;
 }
 
-#if ENABLE(TIZEN_CERTIFICATE_FILE_SET)
-static gboolean
-set_tls_certificate_file (gpointer session)
-{
-	TIZEN_LOGI("");
-	soup_session_set_certificate_file(session);
-
-	return FALSE;
-}
-
-void
-soup_session_tls_start_idle_timer (SoupSession *session, guint idle_timeout)
-{
-	SoupSessionPrivate *priv = SOUP_SESSION_GET_PRIVATE (session);
-
-	TIZEN_LOGI ("timeout[%d]", idle_timeout);
-	if (priv && idle_timeout > 0 && !priv->tls_idle_timeout_src) {
-		priv->tls_idle_timeout_src =
-			soup_add_timeout (priv->async_context,
-					  idle_timeout,
-					  set_tls_certificate_file, session);
-	}
-}
-
-void
-soup_session_tls_stop_idle_timer (SoupSession *session)
-{
-	SoupSessionPrivate *priv = SOUP_SESSION_GET_PRIVATE (session);
-
-	TIZEN_LOGI ("");
-	if (priv && priv->tls_idle_timeout_src) {
-		if (!g_source_is_destroyed (priv->tls_idle_timeout_src)) {
-			TIZEN_LOGI("g_source isn't NULL.");
-			/* Adding log to cross check if MainContext exists */
-			TIZEN_LOGE("GMainContext of priv->tls_idle_timeout_src"
-					" is %p", priv->async_context);
-			if(priv->async_context)
-				g_source_destroy (priv->tls_idle_timeout_src);
-		}
-		priv->tls_idle_timeout_src = NULL;
-	}
-}
-
-gboolean
-soup_session_is_tls_db_initialized (SoupSession *session)
-{
-	SoupSessionPrivate *priv = SOUP_SESSION_GET_PRIVATE (session);
-	if (priv && priv->tlsdb)
-		return TRUE;
-	return FALSE;
-}
-#endif
-
 #if ENABLE(TIZEN_TV_CREATE_IDLE_TCP_CONNECTION)
-
 static SoupConnection *
 get_pre_connection_with_uri (SoupSession *session, SoupURI *uri)
 {

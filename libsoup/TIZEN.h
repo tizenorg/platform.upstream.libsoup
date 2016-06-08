@@ -4,7 +4,7 @@
 #define ENABLE(TIZEN_FEATURE) (defined ENABLE_##TIZEN_FEATURE  && ENABLE_##TIZEN_FEATURE)
 
 #define ENABLE_TIZEN_EXT 1
-#define ENABLE_TIZEN_CERTIFICATE_FILE_SET 1 /*Shobhita Agarwal and Sungman Kim: Initialize the tls_db based on a timer at browser launch.*/
+#define ENABLE_TIZEN_CERTIFICATE_FILE_SET 1 /*Raveendra Karu, Shobhita Agarwal and Sungman Kim: apply the lazy initialization. The certificate file set is delayed until first https request*/
 #define ENABLE_TIZEN_UPDATE_CORRECTED_INITIAL_AGE_FOR_CACHE 1 /*Seonah Moon: Update current initial age when libsoup receive 304 not modified message*/
 #define ENABLE_TIZEN_UPDATE_CACHE_ENTRY_CONTENT_TYPE_HEADER 1 /* Raveendra Karu : Update Cache entry's Content-Type header value with sniffed Content-Type value */
 #define ENABLE_TIZEN_USER_AGENT_CHECK_IN_CACHE 1 /* Praveen : Add user agent check to cache */
