@@ -1944,7 +1944,8 @@ void soup_cache_entry_set_content_type (SoupSession *session, SoupMessage *msg, 
 	SoupCacheEntry *entry;
 	SoupCache *cache = (SoupCache *)soup_session_get_feature (session, SOUP_TYPE_CACHE);
 
-	g_return_if_fail (SOUP_IS_CACHE (cache));
+	if (!cache)
+		return;
 
 	entry = soup_cache_entry_lookup (cache, msg);
 	if (entry)
