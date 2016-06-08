@@ -3112,6 +3112,8 @@ _preload_tlsdb_thread (gpointer p)
 	TIZEN_LOGI("Create new tls database by using thread.");
 	g_assert (_gTlsDB_path);
 	_gTlsDB = g_tls_file_database_new (_gTlsDB_path, &error);
+	//Pre-load the default TLS database
+	g_tls_backend_get_default_database (g_tls_backend_get_default());
 	g_mutex_unlock (&_gTlsDB_lock);
 
 	return NULL;
