@@ -338,8 +338,12 @@ get_cookies (SoupCookieJar *jar, SoupURI *uri, gboolean for_http, gboolean copy_
 			domain_cookies = next;
 		}
 		cur = next_domain;
-		if (cur)
+
+		if (cur && *cur)
 			next_domain = strchr (cur + 1, '.');
+		else
+			next_domain = NULL;
+
 	} while (cur);
 	g_free (domain);
 
