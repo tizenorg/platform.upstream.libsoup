@@ -320,7 +320,7 @@ if test $enable_tizen_tv_no_cache_about_video_and_audio != no;then
 fi
 AC_MSG_RESULT($enable_tizen_tv_no_cache_about_video_and_audio)
 
-AM_CONDITIONAL(TIZEN_TV_SOUP_CACHE_CLEAN_LEAKED_RESOURCES, [test $enable_tizen_soup_cache_clean_leaked_resources = yes])
+AM_CONDITIONAL(TIZEN_TV_NO_CACHE_ABOUT_VIDEO_AND_AUDIO, [test $enable_tizen_tv_no_cache_about_video_and_audio = yes])
 
 dnl *************************
 dnl *** Tizen use expanded response block ***
